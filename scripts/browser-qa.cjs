@@ -56,7 +56,7 @@ fs.mkdirSync('artifacts', { recursive: true });
   await page.screenshot({ path: 'artifacts/upgrades.png' }); await page.locator('[data-upgrade]').first().click();
   await page.evaluate(() => { const g = window.__patsBar.game; for (let i = 0; i < 8; i++) g.spawn(i % 3 ? 'olive' : 'bottle', { x: (i - 4) * 2.3, z: -3 + i % 2 * 3 }); });
   await page.waitForTimeout(500); await page.screenshot({ path: 'artifacts/gameplay.png' });
-  await page.evaluate(() => { const g = window.__patsBar.game; g.enemies = []; g.bullets = []; g.wave = 3; g.bannerTime = 0; const b = g.spawn('boss', { x: 0, z: -4 }); b.phase = 'warning'; b.phaseTime = 10; b.target = { ...g.player }; });
+  await page.evaluate(() => { const g = window.__patsBar.game; g.enemies = []; g.bullets = []; g.round = 3; g.encounter = 'boss'; g.bannerTime = 0; const b = g.spawn('boss', { x: 0, z: -4 }); b.phase = 'warning'; b.phaseTime = 10; b.target = { ...g.player }; });
   await page.waitForTimeout(100); await page.screenshot({ path: 'artifacts/boss.png' });
   assert.ok(await page.evaluate(() => {
     const { game, view } = window.__patsBar; const b = game.enemies[0];
@@ -75,6 +75,49 @@ fs.mkdirSync('artifacts', { recursive: true });
   assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'paused');
   await page.setViewportSize({ width: 900, height: 650 }); await page.waitForTimeout(100);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  // Switch modes through the actual result/menu controls.
+  await page.locator('[data-action=resume]').click();
+  await page.evaluate(() => { const g = window.__patsBar.game; g.player.invulnerable = 0; g.damage(1000); });
+  await page.locator('[data-action=menu]').click();
+  await page.locator('[data-run-mode=endless]').click();
+  assert.equal(await page.locator('[data-run-mode=endless]').getAttribute('aria-pressed'), 'true');
+  await page.screenshot({ path: 'artifacts/endless-title-small.png' });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.screenshot({ path: 'artifacts/endless-title.png' });
+  await page.locator('[data-action=start]').click();
+  await page.waitForFunction(() => window.__patsBar.game.runMode === 'endless' && window.__patsBar.game.mode === 'playing');
+  assert.equal(await page.locator('#wave-label').textContent(), 'ENDLESS · ROUND 1');
+  await page.evaluate(() => {
+    const g = window.__patsBar.game; const idle = { x:0, z:0, aim:{x:0,z:0}, fire:false, dodge:false };
+    g.player.invulnerable = 100;
+    for (let r = 1; r <= 9; r++) {
+      g.enemies = []; g.waveTime = 60; g.step(.01, idle);
+      if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); }
+    }
+    g.nextSpawn = 0; g.step(.01, idle);
+    g.enemies.find(e => e.kind === 'boss').phaseTime = 10; g.bannerTime = 0;
+  });
+  await page.waitForFunction(() => document.querySelector('#boss-name').textContent.includes('BOSS 3'));
+  assert.equal(await page.evaluate(() => window.__patsBar.game.enemies.filter(e => e.kind !== 'boss').length), 1);
+  await page.screenshot({ path: 'artifacts/endless-boss.png' });
+  await page.evaluate(() => { const g = window.__patsBar.game; g.enemies.find(e => e.kind === 'boss').hp = 0; });
+  await page.waitForFunction(() => window.__patsBar.game.bossCleared);
+  assert.equal(await page.locator('#wave-name').textContent(), 'Clear the remaining enemies');
+  assert.equal(await page.evaluate(() => window.__patsBar.game.round), 9);
+  await page.evaluate(() => { const g = window.__patsBar.game; g.enemies.forEach(e => e.hp = 0); });
+  await page.waitForFunction(() => window.__patsBar.game.round === 10);
+  await page.evaluate(() => { const g = window.__patsBar.game; g.player.invulnerable = 0; g.damage(1000); });
+  await page.waitForFunction(() => document.querySelector('.endless-results'));
+  const stats = await page.locator('.endless-results').textContent();
+  assert.ok(stats.includes('9ROUNDS CLEARED') && stats.includes('3BOSSES DEFEATED'));
+  await page.screenshot({ path: 'artifacts/endless-results.png' });
+  await page.locator('[data-action=start]').click();
+  assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.runMode,g.round,g.roundsCompleted,g.bossesDefeated]; }), ['endless',1,0,0]);
+  await page.evaluate(() => window.__patsBar.game.damage(1000));
+  await page.locator('[data-action=menu]').click();
+  await page.locator('[data-run-mode=normal]').click();
+  await page.locator('[data-action=start]').click();
+  assert.equal(await page.evaluate(() => window.__patsBar.game.runMode), 'normal');
   assert.deepEqual(errors, []); console.log('Browser QA passed: movement, mouse fire, dodge, pause, upgrades, boss, win/loss, restart, focus loss, resize; no page errors.');
   await browser.close();
 })().catch(e => { console.error(e); process.exitCode = 1; });

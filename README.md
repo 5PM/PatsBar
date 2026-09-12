@@ -2,6 +2,10 @@
 
 A desktop-browser Three.js survival roguelike. Play a miniature photo-based hero on a wooden bar: survive three 60-second rounds of angry olives and bottle creatures, collect XP, choose upgrades, then take on the giant photo-based boss.
 
+Choose **Normal** for the original three-round run and final boss, or **Endless** for increasingly difficult 60-second rounds until death. Endless bosses appear after rounds 3, 6, 9, and every third round thereafter. The first two bosses fight alone; starting with the boss after round 9, regular enemies reinforce the fight. Kill the boss and clear surviving enemies to advance.
+
+Endless retains XP and upgrades between encounters. Clearing a round or boss encounter restores 20 health and banks leftover XP. Upgrade caps stay in place; after all upgrades are capped, level-ups restore 25 health. Results show rounds cleared, bosses defeated, survival time, kills, and level. Another Round restarts the same mode; Change Mode / Main Menu returns to mode selection. Nothing is saved between runs.
+
 ## Run locally
 
 Requires Node.js 22.12+ (Node 24 recommended).
@@ -47,7 +51,7 @@ npm run test:browser
 
 Set `PLAYWRIGHT_CHANNEL=chrome` to use installed Chrome instead of Playwright’s bundled Chromium. Optionally set `PATS_BAR_URL` for another development-server address. Screenshots are written to `artifacts/`.
 
-The browser suite exercises real movement/fire/dodge input, pause, upgrade selection, result screens, reset, focus loss, and resize. It sets up boss/outcome states to test those screens. Separately, three seeded simulations play complete runs without health cheats; offense-focused builds finish the boss in approximately 61–68 seconds, excluding time spent choosing upgrades. Human completion times depend on upgrades and aim.
+The browser suite exercises real movement/fire/dodge input, pause, upgrade selection, both mode selections, result screens, reset, focus loss, and resize. It sets up boss/outcome states to test those screens. Separately, three seeded simulations per mode play complete runs without health cheats. Normal offense-focused builds finish the boss in approximately 61–68 seconds, excluding time spent choosing upgrades. Extended Endless simulations check progression until death and entity limits. Human completion times depend on upgrades and aim.
 
 ## Structure
 

@@ -1,5 +1,7 @@
 export type EnemyKind = 'olive' | 'bottle' | 'boss';
 export type Mode = 'title' | 'playing' | 'upgrade' | 'paused' | 'victory' | 'defeat';
+export type RunMode = 'normal' | 'endless';
+export type Encounter = 'wave' | 'boss';
 export type UpgradeId = 'damage' | 'rate' | 'count' | 'pierce' | 'speed' | 'health' | 'magnet';
 export interface Upgrade { id: UpgradeId; name: string; description: string; icon: string; cap: number }
 export const UPGRADES: Upgrade[] = [
@@ -25,3 +27,24 @@ export const ENEMIES: Record<EnemyKind, { hp: number; speed: number; radius: num
 export const WEAPON = { damage: 18, interval: .32, speed: 21, lifetime: 1.8 };
 export const xpRequired = (level: number) => 12 + (level - 1) * 8;
 export const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
+export function waveDifficulty(runMode: RunMode, round: number) {
+  const index = clamp(round - 1, 0, 2);
+  const base = WAVES[index];
+  const n = runMode === 'endless' ? Math.max(0, round - 3) : 0;
+  return {
+    ...base,
+    name: n ? 'Still on the house' : base.name,
+    hp: (1 + index * .16) * (1 + .12 * n),
+    damage: 1 + .08 * n,
+    speed: (1 + index * .08) * Math.min(1.5, 1 + .025 * n),
+    interval: Math.max(.25, base.interval / (1 + .08 * n)),
+    max: Math.min(60, base.max + 2 * n),
+    bottleChance: Math.min(.6, base.bottleChance + .01 * n),
+  };
+}
+
+export function bossDifficulty(runMode: RunMode, bossNumber: number) {
+  const n = runMode === 'endless' ? Math.max(0, bossNumber - 1) : 0;
+  return { hp: 1 + .3 * n, damage: 1 + .15 * n, recovery: Math.min(1.5, 1 + .08 * n) };
+}

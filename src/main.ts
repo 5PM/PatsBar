@@ -1,4 +1,5 @@
 import './style.css';
+import './modes.css';
 import { Game } from './game';
 import { Controls } from './input';
 import { View } from './view';

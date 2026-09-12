@@ -1,19 +1,40 @@
-import { ARENA, clamp, ENEMIES, type EnemyKind, type Mode, UPGRADES, type UpgradeId, WAVES, WEAPON, xpRequired } from './config';
+import { ARENA, bossDifficulty, clamp, ENEMIES, type EnemyKind, type Mode, type RunMode, type Encounter, UPGRADES, type UpgradeId, waveDifficulty, WEAPON, xpRequired } from './config';
 export interface Vec { x: number; z: number }
-export interface Enemy extends Vec { id: number; kind: EnemyKind; hp: number; maxHp: number; radius: number; cooldown: number; flash: number; phase: 'rest' | 'warning' | 'charge'; phaseTime: number; target: Vec; attack: number }
+export interface Enemy extends Vec { id: number; kind: EnemyKind; hp: number; maxHp: number; radius: number; speed: number; damage: number; projectileDamage: number; recovery: number; cooldown: number; flash: number; phase: 'rest' | 'warning' | 'charge'; phaseTime: number; target: Vec; attack: number }
 export interface Bullet extends Vec { id: number; vx: number; vz: number; life: number; hostile: boolean; damage: number; remaining: number; hit: Set<number> }
 export interface Pickup extends Vec { id: number; value: number }
 export interface Effect extends Vec { id: number; life: number; color: string }
 export interface Input { x: number; z: number; aim: Vec; fire: boolean; dodge: boolean }
 export class Game {
   mode: Mode = 'title'; resumeMode: 'playing' | 'upgrade' = 'playing';
+  runMode: RunMode = 'normal'; encounter: Encounter = 'wave'; round = 1; roundsCompleted = 0; bossesDefeated = 0;
+  bossCleared = false;
+  get bossNumber() { return Math.floor(this.round / 3); }
+  get difficulty() { return waveDifficulty(this.runMode, this.round); }
   player = { x: 0, z: 3, hp: 100, maxHp: 100, invulnerable: 0, dodge: 0, dash: 0, dx: 0, dz: -1 };
   enemies: Enemy[] = []; bullets: Bullet[] = []; pickups: Pickup[] = []; effects: Effect[] = [];
   upgrades: Record<UpgradeId, number> = { damage: 0, rate: 0, count: 0, pierce: 0, speed: 0, health: 0, magnet: 0 };
-  choices: UpgradeId[] = []; wave = 0; waveTime = 0; elapsed = 0; level = 1; xp = 0; kills = 0; shots = 0; nextSpawn = .8; fireTime = 0; sequence = 0; banner = ''; bannerTime = 0;
+  choices: UpgradeId[] = []; waveTime = 0; elapsed = 0; level = 1; xp = 0; kills = 0; shots = 0; nextSpawn = .8; fireTime = 0; sequence = 0; banner = ''; bannerTime = 0;
   constructor(public random: () => number = Math.random, public onHurt: () => void = () => {}) {}
-  start() {
-    const fresh = new Game(this.random, this.onHurt); Object.assign(this, fresh); this.mode = 'playing'; this.announce('ROUND 01 · A QUIET NIGHT');
+  start(runMode: RunMode = 'normal') {
+    const fresh = new Game(this.random, this.onHurt); Object.assign(this, fresh); this.runMode = runMode; this.mode = 'playing'; this.announce('ROUND 01 · A QUIET NIGHT');
+  }
+  menu() { const selected = this.runMode; this.start(selected); this.mode = 'title'; }
+  private advanceEncounter() {
+    const finishedWave = this.encounter === 'wave';
+    this.player.hp = Math.min(this.player.maxHp, this.player.hp + 20);
+    this.xp += this.pickups.reduce((sum, o) => sum + o.value, 0); this.pickups = [];
+    this.bullets = this.bullets.filter(b => !b.hostile);
+    this.waveTime = 0; this.nextSpawn = 1.5;
+    if (finishedWave) this.roundsCompleted++;
+    if (finishedWave && this.round % 3 === 0) {
+      this.encounter = 'boss'; this.bossCleared = false;
+      this.spawn('boss', { x: 0, z: -5 });
+      this.announce(this.runMode === 'normal' ? 'LAST CALL · THE BIG GUY' : `BOSS ${this.bossNumber} · ${this.bossNumber >= 3 ? 'HE BROUGHT COMPANY' : 'THE BIG GUY'}`);
+    } else {
+      this.round++; this.encounter = 'wave'; this.bossCleared = false;
+      this.announce(`ROUND ${String(this.round).padStart(2, '0')} · ${this.difficulty.name.toUpperCase()}`);
+    }
   }
   announce(text: string) { this.banner = text; this.bannerTime = 3; }
   pause() { if (this.mode === 'playing' || this.mode === 'upgrade') { this.resumeMode = this.mode; this.mode = 'paused'; } else if (this.mode === 'paused') this.mode = this.resumeMode; }
@@ -37,8 +58,13 @@ export class Game {
   spawn(kind: EnemyKind, pos?: Vec) {
     const side = Math.floor(this.random() * 4);
     const p = pos ?? { x: side < 2 ? (side ? -1 : 1) * 13.4 : (this.random() * 2 - 1) * 13, z: side >= 2 ? (side === 2 ? -1 : 1) * 7.4 : (this.random() * 2 - 1) * 7 };
-    const c = ENEMIES[kind]; const hp = c.hp * (kind === 'boss' ? 1 : 1 + this.wave * .16);
-    const e: Enemy = { ...p, id: ++this.sequence, kind, hp, maxHp: hp, radius: c.radius, cooldown: 1.5 + this.random(), flash: 0, phase: 'rest', phaseTime: 2.4, target: { x: 0, z: 0 }, attack: 0 };
+    const c = ENEMIES[kind], wave = this.difficulty, boss = bossDifficulty(this.runMode, this.bossNumber);
+    const hp = c.hp * (kind === 'boss' ? boss.hp : wave.hp);
+    const damageScale = kind === 'boss' ? boss.damage : wave.damage;
+    const e: Enemy = { ...p, id: ++this.sequence, kind, hp, maxHp: hp, radius: c.radius,
+      speed: c.speed * (kind === 'boss' ? 1.16 : wave.speed), damage: c.damage * damageScale,
+      projectileDamage: 14 * damageScale, recovery: kind === 'boss' ? boss.recovery : 1,
+      cooldown: 1.5 + this.random(), flash: 0, phase: 'rest', phaseTime: 2.4 / (kind === 'boss' ? boss.recovery : 1), target: { x: 0, z: 0 }, attack: 0 };
     this.enemies.push(e); return e;
   }
   damage(amount: number) {
@@ -49,10 +75,10 @@ export class Game {
     if (!this.player.hp) this.mode = 'defeat';
   }
   effect(pos: Vec, color: string) { if (this.effects.length < 80) this.effects.push({ ...pos, id: ++this.sequence, life: .4, color }); }
-  shoot(pos: Vec, angle: number, hostile = false) {
+  shoot(pos: Vec, angle: number, hostile = false, hostileDamage = 14) {
     if (this.bullets.length >= 240) return;
     const speed = hostile ? 5.2 : WEAPON.speed;
-    this.bullets.push({ ...pos, id: ++this.sequence, vx: Math.sin(angle) * speed, vz: Math.cos(angle) * speed, life: hostile ? 6 : WEAPON.lifetime, hostile, damage: hostile ? 14 : WEAPON.damage * (1 + this.upgrades.damage * .25), remaining: 1 + (hostile ? 0 : this.upgrades.pierce), hit: new Set() });
+    this.bullets.push({ ...pos, id: ++this.sequence, vx: Math.sin(angle) * speed, vz: Math.cos(angle) * speed, life: hostile ? 6 : WEAPON.lifetime, hostile, damage: hostile ? hostileDamage : WEAPON.damage * (1 + this.upgrades.damage * .25), remaining: 1 + (hostile ? 0 : this.upgrades.pierce), hit: new Set() });
   }
   step(dt: number, input: Input) {
     if (this.mode !== 'playing') return;
@@ -69,31 +95,33 @@ export class Game {
       const angle = Math.atan2(input.aim.x - p.x, input.aim.z - p.z), count = 1 + this.upgrades.count;
       for (let i = 0; i < count; i++) this.shoot(p, angle + (i - (count - 1) / 2) * .11);
     }
-    if (this.wave < 3 && this.waveTime < WAVES[this.wave].duration) {
+    const difficulty = this.difficulty;
+    const reinforcements = this.runMode === 'endless' && this.encounter === 'boss' && this.bossNumber >= 3 && this.enemies.some(e => e.kind === 'boss' && e.hp > 0);
+    if ((this.encounter === 'wave' && this.waveTime < difficulty.duration) || reinforcements) {
       this.nextSpawn -= dt;
-      if (this.nextSpawn <= 0 && this.enemies.length < WAVES[this.wave].max) {
-        this.nextSpawn = WAVES[this.wave].interval; this.spawn(this.random() < WAVES[this.wave].bottleChance ? 'bottle' : 'olive');
+      if (this.nextSpawn <= 0 && this.enemies.filter(e => e.kind !== 'boss').length < (reinforcements ? 12 : difficulty.max)) {
+        this.nextSpawn = difficulty.interval * (reinforcements ? 2 : 1); this.spawn(this.random() < difficulty.bottleChance ? 'bottle' : 'olive');
       }
     }
     for (const e of this.enemies) {
       e.flash = Math.max(0, e.flash - dt); e.cooldown -= dt;
       const dx = p.x - e.x, dz = p.z - e.z, dist = Math.hypot(dx, dz) || 1;
-      let move = ENEMIES[e.kind].speed * (1 + Math.min(this.wave, 2) * .08);
+      let move = e.speed;
       if (e.kind === 'boss') {
         e.phaseTime -= dt; const rage = e.hp < e.maxHp * .5;
         if (e.phase === 'rest' && e.phaseTime <= 0) { e.phase = 'warning'; e.phaseTime = rage ? .85 : 1.2; e.target = { x: p.x, z: p.z }; }
         else if (e.phase === 'warning' && e.phaseTime <= 0) {
           if (e.attack % 2 === 0) { e.phase = 'charge'; e.phaseTime = .75; }
-          else { for (let i = 0; i < (rage ? 22 : 16); i++) this.shoot(e, i * Math.PI * 2 / (rage ? 22 : 16) + this.elapsed * .2, true); e.phase = 'rest'; e.phaseTime = rage ? 1.3 : 2.1; e.attack++; }
-        } else if (e.phase === 'charge' && e.phaseTime <= 0) { e.phase = 'rest'; e.phaseTime = rage ? 1.3 : 2.1; e.attack++; }
+          else { for (let i = 0; i < (rage ? 22 : 16); i++) this.shoot(e, i * Math.PI * 2 / (rage ? 22 : 16) + this.elapsed * .2, true, e.projectileDamage); e.phase = 'rest'; e.phaseTime = (rage ? 1.3 : 2.1) / e.recovery; e.attack++; }
+        } else if (e.phase === 'charge' && e.phaseTime <= 0) { e.phase = 'rest'; e.phaseTime = (rage ? 1.3 : 2.1) / e.recovery; e.attack++; }
         if (e.phase === 'charge') { const tx = e.target.x - e.x, tz = e.target.z - e.z, d = Math.hypot(tx, tz); if (d > .2) { const travel = Math.min(d, dt * 16); e.x += tx / d * travel; e.z += tz / d * travel; } move = 0; }
         else if (e.phase === 'warning') move = 0;
       } else if (e.kind === 'bottle') {
         if (dist < 7) move = 0;
-        if (e.cooldown <= 0) { this.shoot(e, Math.atan2(dx, dz), true); e.cooldown = 2.8; }
+        if (e.cooldown <= 0) { this.shoot(e, Math.atan2(dx, dz), true, e.projectileDamage); e.cooldown = 2.8; }
       }
       e.x = clamp(e.x + dx / dist * move * dt, -13.4, 13.4); e.z = clamp(e.z + dz / dist * move * dt, -7.4, 7.4);
-      if (Math.hypot(e.x - p.x, e.z - p.z) < e.radius + .35) this.damage(ENEMIES[e.kind].damage);
+      if (Math.hypot(e.x - p.x, e.z - p.z) < e.radius + .35) this.damage(e.damage);
     }
     for (const b of this.bullets) {
       b.life -= dt; b.x += b.vx * dt; b.z += b.vz * dt;
@@ -106,7 +134,10 @@ export class Game {
     }
     for (const e of this.enemies.filter(e => e.hp <= 0)) {
       this.kills++; this.effect(e, '#94d9a4');
-      if (e.kind === 'boss') { if (this.mode === 'playing') this.mode = 'victory'; }
+      if (e.kind === 'boss') {
+        this.bossesDefeated++; this.bossCleared = true;
+        if (this.mode === 'playing' && this.runMode === 'normal') this.mode = 'victory';
+      }
       else {
         const value = ENEMIES[e.kind].xp;
         if (this.pickups.length < 160) this.pickups.push({ x: e.x, z: e.z, value, id: ++this.sequence });
@@ -123,12 +154,7 @@ export class Game {
     this.effects.forEach(e => e.life -= dt); this.effects = this.effects.filter(e => e.life > 0);
     if (this.mode !== 'playing') return;
     this.checkLevel();
-    if (this.wave < 3 && this.waveTime >= WAVES[this.wave].duration && !this.enemies.length) {
-      this.wave++; this.waveTime = 0; this.nextSpawn = 1.5; this.bullets = this.bullets.filter(b => !b.hostile); p.hp = Math.min(p.maxHp, p.hp + 20);
-      // Bank leftover XP between waves so no upgrade is lost to an arena transition.
-      this.xp += this.pickups.reduce((sum, o) => sum + o.value, 0); this.pickups = [];
-      if (this.wave === 3) { this.spawn('boss', { x: 0, z: -5 }); this.announce('LAST CALL · THE BIG GUY'); }
-      else this.announce(`ROUND 0${this.wave + 1} · ${WAVES[this.wave].name.toUpperCase()}`);
-    }
+    const cleared = this.encounter === 'wave' ? this.waveTime >= difficulty.duration : this.bossCleared;
+    if (cleared && !this.enemies.length) this.advanceEncounter();
   }
 }
