@@ -94,7 +94,7 @@ fs.mkdirSync('artifacts', { recursive: true });
     g.player.invulnerable = 100;
     for (let r = 1; r <= 9; r++) {
       g.enemies = []; g.waveTime = 60; g.step(.01, idle);
-      if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); while (g.mode === 'upgrade' || g.mode === 'super') { if(g.mode === 'upgrade') g.choose(g.choices[0]); else g.chooseSuper(g.superChoices.find(id => id !== 'shield') || g.superChoices[0]); } }
+      if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); while (['upgrade','super','equipment','training'].includes(g.mode)) { if(g.mode === 'upgrade') g.choose(g.choices[0]); else if(g.mode === 'super') g.chooseSuper(g.superChoices.find(id => id !== 'shield') || g.superChoices[0]); else if(g.mode === 'training') g.chooseTraining('power'); else g.chooseEquipment(null); } }
     }
     g.nextSpawn = 0; g.step(.01, idle);
     g.enemies.find(e => e.kind === 'boss').phaseTime = 10; g.bannerTime = 0;
@@ -117,6 +117,8 @@ fs.mkdirSync('artifacts', { recursive: true });
   await page.locator('[data-action=resume]').click();
   await page.screenshot({path:'artifacts/super-buffs.png'});
   await page.locator('[data-super]').first().click();
+  await page.waitForFunction(() => window.__patsBar.game.mode === 'equipment');
+  await page.locator('[data-equipment=skip]').click();
   await page.waitForFunction(() => window.__patsBar.game.round === 10);
   assert.equal(await page.evaluate(() => window.__patsBar.game.superBuffs.size), 3);
   assert.equal(await page.locator('.power-inventory').count(), 0);

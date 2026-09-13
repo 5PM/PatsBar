@@ -1,6 +1,7 @@
 import { Game } from './game';
-import { SUPER_BUFFS, type SuperBuffId, UPGRADES, xpRequired, type UpgradeId, type RunMode } from './config';
+import { EQUIPMENT, TRAINING, gearName, isSelectionMode, type EquipmentId, type TrainingId, SUPER_BUFFS, type SuperBuffId, UPGRADES, xpRequired, type UpgradeId, type RunMode } from './config';
 const time = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
+const choiceSelector = '[data-upgrade], [data-super], [data-equipment], [data-training]';
 export class UI {
   root: HTMLElement; overlay: HTMLElement; lastMode = ''; lastChoices = ''; health: HTMLElement; xp: HTMLElement; ready = false;
   private upgradeReadyAt = 0;
@@ -22,12 +23,12 @@ export class UI {
     window.addEventListener('keyup', e => this.heldKeys.delete(e.code), true);
     window.addEventListener('blur', () => { this.heldPointers.clear(); this.heldKeys.clear(); this.pressedCard = null; });
     this.overlay.addEventListener('pointerdown', e => {
-      const card = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-upgrade], [data-super]');
+      const card = (e.target as HTMLElement).closest<HTMLButtonElement>(choiceSelector);
       this.pressedCard = this.upgradeArmed && e.button === 0 && card && !card.disabled ? card : null;
     });
     this.overlay.addEventListener('keydown', e => {
       if ((e.code === 'Enter' || e.code === 'Space') && !e.repeat) {
-        const card = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-upgrade], [data-super]');
+        const card = (e.target as HTMLElement).closest<HTMLButtonElement>(choiceSelector);
         this.pressedCard = this.upgradeArmed && card && !card.disabled ? card : null;
       }
     });
@@ -38,9 +39,11 @@ export class UI {
       if (button.dataset.action === 'resume') game.pause();
       if (button.dataset.action === 'menu') { game.menu(); this.lastMode = ''; }
       if (button.dataset.runMode && game.mode === 'title') { game.runMode = button.dataset.runMode as RunMode; this.lastMode = ''; }
-      if ((button.dataset.upgrade || button.dataset.super) && this.upgradeArmed && this.pressedCard === button && !button.disabled) {
+      if (button.matches(choiceSelector) && this.upgradeArmed && this.pressedCard === button && !button.disabled) {
         this.pressedCard = null; this.upgradeArmed = false;
-        if (button.dataset.super) game.chooseSuper(button.dataset.super as SuperBuffId);
+        if (button.dataset.equipment) game.chooseEquipment(button.dataset.equipment === 'skip' ? null : button.dataset.equipment as EquipmentId);
+        else if (button.dataset.training) game.chooseTraining(button.dataset.training as TrainingId);
+        else if (button.dataset.super) game.chooseSuper(button.dataset.super as SuperBuffId);
         else game.choose(button.dataset.upgrade as UpgradeId);
       }
     });
@@ -51,13 +54,13 @@ export class UI {
     const supers = SUPER_BUFFS.filter(b => g.superBuffs.has(b.id));
     const total = Object.values(g.upgrades).reduce((sum, n) => sum + n, 0);
     const item = (icon: string, name: string, detail: string, description: string) => `<div class="inventory-item" tabindex="0" aria-label="${name}: ${detail}. ${description}"><span>${icon} ${name}</span><b>${detail}</b><span class="inventory-description" role="tooltip">${description}</span></div>`;
-    return `<section class="power-inventory" aria-label="Your power-ups"><div class="inventory-heading"><h3>Your power-ups</h3><span>Upgrade stacks: ${total} · Super buffs: ${supers.length}/4</span></div>${!regular.length && !supers.length ? '<p>No power-ups yet</p>' : `<div class="inventory-grid">${regular.map(u => item(u.icon, u.name, `${g.upgrades[u.id]}/${u.cap}${g.upgrades[u.id] === u.cap ? ' MAX' : ''}`, u.description)).join('')}${supers.map(b => item(b.icon, b.name, 'SUPER', b.description)).join('')}</div>`}</section>`;
+    return `<section class="power-inventory" aria-label="Your power-ups"><div class="inventory-heading"><h3>Your power-ups</h3><span>Upgrade stacks: ${total} · Super buffs: ${supers.length}/4</span></div>${!regular.length && !supers.length ? '<p>No power-ups yet</p>' : `<div class="inventory-grid">${regular.map(u => item(u.icon, u.name, `${g.upgrades[u.id]}/${u.cap}${g.upgrades[u.id] === u.cap ? ' MAX' : ''}`, u.description)).join('')}${supers.map(b => item(b.icon, b.name, 'SUPER', b.description)).join('')}</div>`}${g.runMode === 'endless' ? `<div class="inventory-subheading">Equipped gear & training</div><div class="inventory-grid">${(['weapon', 'armor'] as const).map(slot => { const gear = EQUIPMENT.find(e => e.id === g[slot]); return item(gear?.icon ?? (slot === 'weapon' ? '◎' : '—'), gearName(g[slot]), slot.toUpperCase(), gear?.description ?? (slot === 'weapon' ? 'Your original bottle caps, with regular upgrades.' : 'No armor equipped.')); }).join('')}${TRAINING.map(t => item(t.icon, t.name, String(g.training[t.id]) + (g.training[t.id] === 1 ? ' STACK' : ' STACKS'), t.description)).join('')}</div>` : ''}</section>`;
   }
   setReady() { this.ready = true; this.lastMode = ''; }
   update() {
     const g = this.game; const title = g.mode === 'title'; const active = !title;
     document.querySelector('#hud')!.classList.toggle('hidden', !active);
-    document.querySelector('#pause')!.classList.toggle('hidden', !['playing', 'paused', 'upgrade', 'super'].includes(g.mode));
+    document.querySelector('#pause')!.classList.toggle('hidden', !(g.mode === 'playing' || g.mode === 'paused' || isSelectionMode(g.mode)));
     this.health.style.width = `${g.player.hp / g.player.maxHp * 100}%`; this.health.classList.toggle('low', g.player.hp < 30);
     document.querySelector('#hp-text')!.textContent = `${Math.ceil(g.player.hp)} / ${g.player.maxHp}`;
     this.xp.style.width = `${Math.min(100, g.xp / xpRequired(g.level) * 100)}%`; document.querySelector('#level')!.textContent = `LVL ${g.level.toString().padStart(2, '0')}`;
@@ -70,14 +73,14 @@ export class UI {
     document.querySelector('.wave-panel')!.classList.toggle('hidden', !!boss);
     if (boss) { document.querySelector('#boss-name')!.textContent = g.runMode === 'endless' ? `BOSS ${g.bossNumber} · THE BIG GUY` : 'THE BIG GUY'; (document.querySelector('#boss-fill') as HTMLElement).style.width = `${boss.hp / boss.maxHp * 100}%`; document.querySelector('#boss-phase')!.textContent = boss.phase === 'warning' ? (boss.attack % 2 === 0 ? 'WATCH THE CHARGE' : 'INCOMING BURST') : boss.hp < boss.maxHp / 2 ? 'NO MORE MR. NICE GUY' : 'LAST CALL'; }
     const banner = document.querySelector('#banner')!; banner.textContent = g.bannerTime > 0 && g.mode === 'playing' ? g.banner : '';
-    const key = g.choices.join(',') + '/' + g.superChoices.join(',');
+    const key = g.choices.join(',') + '/' + g.superChoices.join(',') + '/' + g.equipmentChoices.join(',');
     const changed = this.lastMode !== g.mode || this.lastChoices !== key || this.lastLevel !== g.level;
-    if ((g.mode === 'upgrade' || g.mode === 'super')) {
+    if (isSelectionMode(g.mode)) {
       if (changed) {
         this.upgradeReadyAt = performance.now() + 200; this.upgradeArmed = false; this.pressedCard = null;
       } else if (!this.upgradeArmed && performance.now() >= this.upgradeReadyAt && !this.heldPointers.size && !this.heldKeys.size) {
         this.upgradeArmed = true;
-        this.overlay.querySelectorAll<HTMLButtonElement>('[data-upgrade], [data-super]').forEach(b => b.disabled = false);
+        this.overlay.querySelectorAll<HTMLButtonElement>(choiceSelector).forEach(b => b.disabled = false);
         this.overlay.querySelector('[data-upgrade-hint]')!.textContent = 'Take your time. The bar can wait.';
       }
     }
@@ -86,14 +89,16 @@ export class UI {
     this.lastMode = g.mode; this.lastChoices = key; this.overlay.className = g.mode === 'playing' ? 'hidden' : `overlay-${g.mode}`;
     document.body.dataset.mode = g.mode;
     if (title) this.overlay.innerHTML = `<main class="title-card"><div class="eyebrow"><span></span> WELCOME TO YOUR LOCAL</div><h1>Pat’s Bar<span>Last call.<br>First fight.</span></h1><p>The drinks are oversized.<br>The locals are hostile.<br>And you’re picking up the tab.</p><div class="mode-picker" role="group" aria-label="Game mode">${(['normal', 'endless'] as const).map(mode => `<button data-run-mode="${mode}" aria-pressed="${g.runMode === mode}"><strong>${mode === 'normal' ? 'Normal' : 'Endless ∞'}</strong><span>${mode === 'normal' ? '3 rounds + the big guy' : 'Keep going until last call'}</span></button>`).join('')}</div><button class="primary" data-action="start" ${this.ready ? '' : 'disabled'}>${this.ready ? 'STEP UP TO THE BAR' : 'SETTING UP THE BAR…'} <span>↗</span></button><div class="run-note">${g.runMode === 'normal' ? '3 ROUNDS · 1 BIG BOSS · ONE SHOT AT LAST CALL' : 'BOSS EVERY 3 ROUNDS · REINFORCEMENTS FROM BOSS 3'}</div></main><aside class="scene-caption"><span class="tag">MEET YOUR REGULAR</span><h2>A little out<br>of his depth.</h2><p>Armed with bottle caps.<br>Running on pure instinct.</p><div class="caption-rule"></div><span class="micro">SURVIVE. LEVEL UP. SETTLE THE TAB.</span></aside><div class="title-index">01 <span>/ THE COUNTERTOP</span></div>`;
-    else if (g.mode === 'super') this.overlay.innerHTML = `<div class="modal upgrade-modal super-modal"><div class="eyebrow">BOSS CLEARED · +45 HP</div><h2>The house special.</h2><p>Choose a unique super buff. Yours for the rest of this run.</p><div class="upgrade-grid">${g.superChoices.map(id => { const b = SUPER_BUFFS.find(b => b.id === id)!; return `<button class="upgrade-card" data-super="${id}"><span class="upgrade-icon">${b.icon}</span><span class="micro">UNIQUE SUPER BUFF</span><h3>${b.name}</h3><p>${b.description}</p><span class="choose">TAKE IT <b>↗</b></span></button>`; }).join('')}</div><small></small></div>`;
+    else if (g.mode === 'equipment') this.overlay.innerHTML = `<div class="modal upgrade-modal equipment-modal"><div class="eyebrow">BOSS CLEARED · GEAR UP</div><h2>Tools of the trade.</h2><p>Choose one item or keep your gear. Replaced items are discarded.</p><div class="upgrade-grid">${g.equipmentChoices.map(id => { const e = EQUIPMENT.find(e => e.id === id)!; const current = g[e.slot]; const description = EQUIPMENT.find(item => item.id === current)?.description ?? (e.slot === 'weapon' ? 'Your original bottle caps, with regular upgrades.' : 'No armor bonus.'); return `<button class="upgrade-card" data-equipment="${id}"><span class="upgrade-icon">${e.icon}</span><span class="micro">REPLACES ${e.slot.toUpperCase()} SLOT</span><h3>${e.name}</h3><p>${e.description}</p><div class="gear-comparison"><b>Current: ${gearName(current)}</b><span>${description}</span></div><span class="choose">EQUIP IT <b>↗</b></span></button>`; }).join('')}</div><button class="menu-button gear-skip" data-equipment="skip">Keep current gear</button><small></small></div>`;
+    else if (g.mode === 'training') this.overlay.innerHTML = `<div class="modal upgrade-modal training-modal"><div class="eyebrow">LEVEL ${g.level} · HEALTH RESTORED</div><h2>Stronger by the round.</h2><p>All regular upgrades mastered. Keep training with no stack limit.</p><div class="upgrade-grid">${TRAINING.map(t => `<button class="upgrade-card" data-training="${t.id}"><span class="upgrade-icon">${t.icon}</span><span class="micro">TRAINING STACK ${g.training[t.id] + 1}</span><h3>${t.name}</h3><p>${t.description}</p><span class="choose">TRAIN <b>↗</b></span></button>`).join('')}</div><small></small></div>`;
+    else if (g.mode === 'super') this.overlay.innerHTML = `<div class="modal upgrade-modal super-modal"><div class="eyebrow">BOSS CLEARED · HEALTH RESTORED</div><h2>The house special.</h2><p>Choose a unique super buff. Yours for the rest of this run.</p><div class="upgrade-grid">${g.superChoices.map(id => { const b = SUPER_BUFFS.find(b => b.id === id)!; return `<button class="upgrade-card" data-super="${id}"><span class="upgrade-icon">${b.icon}</span><span class="micro">UNIQUE SUPER BUFF</span><h3>${b.name}</h3><p>${b.description}</p><span class="choose">TAKE IT <b>↗</b></span></button>`; }).join('')}</div><small></small></div>`;
     else if (g.mode === 'upgrade') this.overlay.innerHTML = `<div class="modal upgrade-modal"><div class="eyebrow">A LITTLE SOMETHING ON THE HOUSE</div><h2>Make it a double.</h2><p>Level ${g.level} · Choose your next upgrade.</p><div class="upgrade-grid">${g.choices.map(id => { const u = UPGRADES.find(u => u.id === id)!; return `<button class="upgrade-card" data-upgrade="${id}"><span class="upgrade-icon">${u.icon}</span><span class="micro">${g.upgrades[id] ? `STACK ${g.upgrades[id] + 1}` : 'NEW UPGRADE'}</span><h3>${u.name}</h3><p>${u.description}</p><span class="choose">TAKE IT <b>↗</b></span></button>`; }).join('')}</div><small>Take your time. The bar can wait.</small></div>`;
     else if (g.mode === 'paused') this.overlay.innerHTML = `<div class="modal"><div class="eyebrow">HOLD THAT THOUGHT</div><h2>On the rocks.</h2><p>Your tab is safe. Catch your breath.</p><button class="primary" data-action="resume">BACK TO THE BAR <span>↗</span></button><small>Escape to resume</small></div>`;
     else if (g.mode === 'victory' || g.mode === 'defeat') this.overlay.innerHTML = `<div class="modal result"><div class="eyebrow">${g.mode === 'victory' ? 'THE HOUSE IS YOURS' : 'YOU’VE BEEN CUT OFF'}</div><h2>${g.mode === 'victory' ? 'Tab settled.' : 'One too many.'}</h2><p>${g.mode === 'victory' ? 'Three rounds. One big guy. A very small legend.' : 'The countertop always has room for a comeback.'}</p><div class="results ${g.runMode === 'endless' ? 'endless-results' : ''}">${g.runMode === 'endless' ? `<div><strong>${g.roundsCompleted}</strong><span>ROUNDS CLEARED</span></div><div><strong>${g.bossesDefeated}</strong><span>BOSSES DEFEATED</span></div>` : ''}<div><strong>${time(g.elapsed)}</strong><span>TIME AT THE BAR</span></div><div><strong>${g.kills}</strong><span>ENEMIES SERVED</span></div><div><strong>${g.level}</strong><span>LEVEL REACHED</span></div></div><button class="primary" data-action="start">ANOTHER ROUND <span>↗</span></button><button class="menu-button" data-action="menu">CHANGE MODE / MAIN MENU</button></div>`;
     else this.overlay.innerHTML = '';
-    if ((g.mode === 'upgrade' || g.mode === 'super')) {
-      this.overlay.querySelector('.upgrade-grid')!.insertAdjacentHTML('afterend', this.inventory());
-      this.overlay.querySelectorAll<HTMLButtonElement>('[data-upgrade], [data-super]').forEach(b => b.disabled = true);
+    if (isSelectionMode(g.mode)) {
+      (this.overlay.querySelector('.gear-skip') ?? this.overlay.querySelector('.upgrade-grid'))!.insertAdjacentHTML('afterend', this.inventory());
+      this.overlay.querySelectorAll<HTMLButtonElement>(choiceSelector).forEach(b => b.disabled = true);
       const hint = this.overlay.querySelector('small')!; hint.setAttribute('data-upgrade-hint', '');
       hint.setAttribute('aria-live', 'polite'); hint.textContent = 'Take a breath… release your controls to choose.';
     }

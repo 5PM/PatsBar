@@ -1,5 +1,6 @@
 import './style.css';
 import './modes.css';
+import { isSelectionMode } from './config';
 import { Game } from './game';
 import { Controls } from './input';
 import { View } from './view';
@@ -23,8 +24,8 @@ soundButton.addEventListener('click', () => {
   soundButton.title = audio.muted ? 'Enable sound' : 'Mute sound'; soundButton.setAttribute('aria-label', soundButton.title);
 });
 document.querySelector('.header-right')!.append(soundButton);
-window.addEventListener('blur', () => { if (game.mode === 'playing' || game.mode === 'upgrade' || game.mode === 'super') game.pause(); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && (game.mode === 'playing' || game.mode === 'upgrade' || game.mode === 'super')) { controls.clear(); game.pause(); } });
+window.addEventListener('blur', () => { if (game.mode === 'playing' || isSelectionMode(game.mode)) game.pause(); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && (game.mode === 'playing' || isSelectionMode(game.mode))) { controls.clear(); game.pause(); } });
 view.ready.then(() => ui.setReady()).catch(error => { console.error(error); const b = document.querySelector<HTMLButtonElement>('[data-action="start"]'); if (b) b.textContent = 'ASSETS FAILED TO LOAD · RELOAD'; });
 let last = performance.now(), accumulated = 0, visualTime = 0, previousMode = game.mode;
 function frame(now: number) {

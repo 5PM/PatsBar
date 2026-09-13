@@ -1,5 +1,33 @@
 export type EnemyKind = 'olive' | 'bottle' | 'boss';
-export type Mode = 'title' | 'playing' | 'upgrade' | 'super' | 'paused' | 'victory' | 'defeat';
+export type SelectionMode = 'upgrade' | 'super' | 'equipment' | 'training';
+export type Mode = 'title' | 'playing' | SelectionMode | 'paused' | 'victory' | 'defeat';
+export const isSelectionMode = (mode: Mode): mode is SelectionMode => ['upgrade', 'super', 'equipment', 'training'].includes(mode);
+export type WeaponId = 'caps' | 'ricochet' | 'picks' | 'shotgun';
+export type ArmorId = 'none' | 'vest' | 'glass' | 'apron';
+export type EquipmentId = Exclude<WeaponId, 'caps'> | Exclude<ArmorId, 'none'>;
+export type Equipment = { name: string; icon: string; description: string } & (
+  { id: Exclude<WeaponId, 'caps'>; slot: 'weapon' } | { id: Exclude<ArmorId, 'none'>; slot: 'armor' }
+);
+export const EQUIPMENT: Equipment[] = [
+  { id: 'ricochet', slot: 'weapon', name: 'Ricochet Caps', icon: '⤴', description: 'Caps bounce to an unhit enemy within 5 units. Hit 3 enemies, plus piercing stacks.' },
+  { id: 'picks', slot: 'weapon', name: 'Cocktail Picks', icon: '➶', description: '25% more damage and speed. Pierce 3 enemies, plus piercing stacks. Throws take 10% longer.' },
+  { id: 'shotgun', slot: 'weapon', name: 'Bottle-Cap Shotgun', icon: '⋔', description: '5 pellets plus extra-cap stacks in a 40° spread. Half damage each, 0.4-second range, 60% longer between throws.' },
+  { id: 'vest', slot: 'armor', name: 'Coaster Vest', icon: '▣', description: 'Take 20% less contact and projectile damage.' },
+  { id: 'glass', slot: 'armor', name: 'Bottle-Glass Armor', icon: '◇', description: 'Add 75 maximum HP and fill that capacity. Removed when this armor is replaced.' },
+  { id: 'apron', slot: 'armor', name: 'Bar Apron', icon: '♧', description: 'Receive 30% more healing, rounded to the nearest HP.' },
+];
+export const gearName = (id: WeaponId | ArmorId) => EQUIPMENT.find(e => e.id === id)?.name ?? (id === 'caps' ? 'Bottle Caps' : 'No armor');
+export const WEAPON_PROFILES: Record<WeaponId, { damage: number; speed: number; interval: number; lifetime: number; hits: number }> = {
+  caps: { damage: 1, speed: 1, interval: 1, lifetime: 1.8, hits: 1 },
+  ricochet: { damage: 1, speed: 1, interval: 1, lifetime: 1.8, hits: 3 },
+  picks: { damage: 1.25, speed: 1.25, interval: 1.1, lifetime: 1.8, hits: 3 },
+  shotgun: { damage: .5, speed: 1, interval: 1.6, lifetime: .4, hits: 1 },
+};
+export type TrainingId = 'power' | 'endurance';
+export const TRAINING: { id: TrainingId; name: string; icon: string; description: string }[] = [
+  { id: 'power', name: 'Power Training', icon: '✦', description: '+5% baseline weapon damage per training stack. No stack limit.' },
+  { id: 'endurance', name: 'Endurance Training', icon: '♥', description: '+15 permanent maximum HP and restore 15 HP. No stack limit.' },
+];
 export const HEALING = { round: 30, boss: 45 };
 export type SuperBuffId = 'explosive' | 'orbit' | 'shield' | 'trail';
 export const SUPER_BUFFS: { id: SuperBuffId; name: string; icon: string; description: string }[] = [

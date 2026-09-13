@@ -7,6 +7,8 @@ export class View {
   hero!: T.Sprite; heroShadow!: T.Mesh; ring!: T.Mesh; aimRing!: T.Mesh; warning!: T.Mesh; warningLine!: T.Mesh;
   textures: T.Texture[] = []; geometries = new Map<string, T.BufferGeometry>(); materials = new Map<string, T.MeshStandardMaterial>();
   spriteMaterials: T.SpriteMaterial[] = []; ready: Promise<void>;
+  private hostileShotMaterial = new T.MeshBasicMaterial({ color: '#ff825b' });
+  private pickAxis = new T.Vector3(0, 1, 0); private pickDirection = new T.Vector3();
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = T.PCFSoftShadowMap;
@@ -159,15 +161,22 @@ export class View {
     }
     for (const b of game.bullets) {
       live.add(b.id); if (!this.actors.has(b.id)) {
-        const o = new T.Mesh(b.hostile ? this.shape('shot', () => new T.SphereGeometry(.17, 8, 8)) : this.shape('cap', () => new T.CylinderGeometry(.18, .18, .08, 12)), b.hostile ? new T.MeshBasicMaterial({ color: '#ff825b' }) : this.material('#f6d48d', .6)); this.world.add(o); this.actors.set(b.id, o);
-      } const o = this.actors.get(b.id)!; o.position.set(b.x, .48, b.z); o.rotation.z = time * 15;
+        const shape = b.hostile ? this.shape('shot', () => new T.SphereGeometry(.17, 8, 8))
+          : b.weapon === 'picks' ? this.shape('pick', () => new T.ConeGeometry(.07, .8, 5))
+          : b.weapon === 'shotgun' ? this.shape('pellet', () => new T.IcosahedronGeometry(.12))
+          : this.shape('cap', () => new T.CylinderGeometry(.18, .18, .08, 12));
+        const color = b.hostile ? '#ff825b' : b.weapon === 'picks' ? '#c7f6ff' : b.weapon === 'ricochet' ? '#83ffb1' : b.weapon === 'shotgun' ? '#ffb678' : '#f6d48d';
+        const o = new T.Mesh(shape, b.hostile ? this.hostileShotMaterial : this.material(color, .6)); this.world.add(o); this.actors.set(b.id, o);
+      } const o = this.actors.get(b.id)!; o.position.set(b.x, .48, b.z);
+      if (!b.hostile && b.weapon === 'picks') o.quaternion.setFromUnitVectors(this.pickAxis, this.pickDirection.set(b.vx, 0, b.vz).normalize());
+      else o.rotation.z = time * 15;
     }
     for (const orb of game.pickups) {
       live.add(orb.id); if (!this.actors.has(orb.id)) { const o = new T.Mesh(this.shape('xp', () => new T.OctahedronGeometry(.18)), this.material('#9bffc7', .2)); this.world.add(o); this.actors.set(orb.id, o); }
       const o = this.actors.get(orb.id)!; o.position.set(orb.x, .22 + Math.sin(time * 3 + orb.id) * .07, orb.z); o.rotation.y = time;
     }
     for (const e of game.effects) { live.add(e.id); if (!this.actors.has(e.id)) { const o = this.flatRing(.15, .22, e.color); this.world.add(o); this.actors.set(e.id, o); } const o = this.actors.get(e.id)!; o.position.set(e.x, .1, e.z); o.scale.setScalar(e.radius ? e.radius / .22 * (1 - e.life / .4) : 1 + (1 - e.life / .4) * 3); (o as T.Mesh<T.BufferGeometry, T.MeshBasicMaterial>).material.opacity = e.life / .4; }
-    for (const [id, actor] of this.actors) if (!live.has(id)) { this.world.remove(actor); actor.traverse(o => { if (o instanceof T.Sprite) o.material.dispose(); if (o instanceof T.Mesh && ![...this.materials.values()].includes(o.material)) { (o.material as T.Material).dispose(); if (![...this.geometries.values()].includes(o.geometry)) o.geometry.dispose(); } }); this.actors.delete(id); }
+    for (const [id, actor] of this.actors) if (!live.has(id)) { this.world.remove(actor); actor.traverse(o => { if (o instanceof T.Sprite) o.material.dispose(); if (o instanceof T.Mesh && o.material !== this.hostileShotMaterial && ![...this.materials.values()].includes(o.material)) { (o.material as T.Material).dispose(); if (![...this.geometries.values()].includes(o.geometry)) o.geometry.dispose(); } }); this.actors.delete(id); }
     this.renderer.render(this.scene, this.camera);
   }
 }
