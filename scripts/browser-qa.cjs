@@ -53,6 +53,7 @@ fs.mkdirSync('artifacts', { recursive: true });
   // A click without a fresh press must also be rejected.
   await page.locator('[data-upgrade]').first().dispatchEvent('click');
   assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'upgrade');
+  assert.ok((await page.locator('.power-inventory').textContent()).includes('No power-ups yet'));
   await page.screenshot({ path: 'artifacts/upgrades.png' }); await page.locator('[data-upgrade]').first().click();
   await page.evaluate(() => { const g = window.__patsBar.game; for (let i = 0; i < 8; i++) g.spawn(i % 3 ? 'olive' : 'bottle', { x: (i - 4) * 2.3, z: -3 + i % 2 * 3 }); });
   await page.waitForTimeout(500); await page.screenshot({ path: 'artifacts/gameplay.png' });
@@ -77,9 +78,10 @@ fs.mkdirSync('artifacts', { recursive: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   // Switch modes through the actual result/menu controls.
   await page.locator('[data-action=resume]').click();
-  await page.evaluate(() => { const g = window.__patsBar.game; g.player.invulnerable = 0; g.damage(1000); });
+  await page.evaluate(() => { const g = window.__patsBar.game; g.player.invulnerable = 0; g.shieldCooldown = 12; g.damage(1000); });
   await page.locator('[data-action=menu]').click();
   await page.locator('[data-run-mode=endless]').click();
+  await page.waitForFunction(() => document.querySelector('[data-run-mode=endless]')?.getAttribute('aria-pressed') === 'true');
   assert.equal(await page.locator('[data-run-mode=endless]').getAttribute('aria-pressed'), 'true');
   await page.screenshot({ path: 'artifacts/endless-title-small.png' });
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -92,7 +94,7 @@ fs.mkdirSync('artifacts', { recursive: true });
     g.player.invulnerable = 100;
     for (let r = 1; r <= 9; r++) {
       g.enemies = []; g.waveTime = 60; g.step(.01, idle);
-      if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); }
+      if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); while (g.mode === 'upgrade' || g.mode === 'super') { if(g.mode === 'upgrade') g.choose(g.choices[0]); else g.chooseSuper(g.superChoices.find(id => id !== 'shield') || g.superChoices[0]); } }
     }
     g.nextSpawn = 0; g.step(.01, idle);
     g.enemies.find(e => e.kind === 'boss').phaseTime = 10; g.bannerTime = 0;
@@ -105,19 +107,73 @@ fs.mkdirSync('artifacts', { recursive: true });
   assert.equal(await page.locator('#wave-name').textContent(), 'Clear the remaining enemies');
   assert.equal(await page.evaluate(() => window.__patsBar.game.round), 9);
   await page.evaluate(() => { const g = window.__patsBar.game; g.enemies.forEach(e => e.hp = 0); });
+  await page.waitForFunction(() => window.__patsBar.game.mode === 'super');
+  await page.waitForFunction(() => document.querySelectorAll('[data-super]:disabled').length === 0);
+  const frozenSuper = await page.evaluate(() => window.__patsBar.game.elapsed);
+  await page.locator('[data-super]').first().dispatchEvent('click');
+  assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'super');
+  await page.keyboard.press('Escape'); await page.waitForTimeout(100);
+  assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'paused');
+  await page.locator('[data-action=resume]').click();
+  await page.screenshot({path:'artifacts/super-buffs.png'});
+  await page.locator('[data-super]').first().click();
   await page.waitForFunction(() => window.__patsBar.game.round === 10);
-  await page.evaluate(() => { const g = window.__patsBar.game; g.player.invulnerable = 0; g.damage(1000); });
+  assert.equal(await page.evaluate(() => window.__patsBar.game.superBuffs.size), 3);
+  assert.equal(await page.locator('.power-inventory').count(), 0);
+  await page.evaluate(() => {
+    const g = window.__patsBar.game;
+    for (const id of ['explosive','orbit','shield','trail']) g.superBuffs.add(id);
+    g.shieldCooldown = 0; g.player.invulnerable = 0;
+    g.step(.01, {x:1,z:0,aim:{x:0,z:0},fire:false,dodge:true});
+    g.effect({x:3,z:1}, '#ffb65e', 1.5);
+  });
+  await page.waitForTimeout(100);
+  await page.screenshot({path:'artifacts/super-buffs-active.png'});
+  assert.equal(await page.locator('#buff-hud').count(), 0);
+  await page.evaluate(() => { const g = window.__patsBar.game; g.player.invulnerable=0; g.damage(1); });
+  await page.waitForTimeout(100);
+  assert.equal(await page.locator('.power-inventory').count(), 0);
+  await page.evaluate(() => { const g = window.__patsBar.game; g.player.invulnerable = 0; g.shieldCooldown = 12; g.damage(1000); });
   await page.waitForFunction(() => document.querySelector('.endless-results'));
   const stats = await page.locator('.endless-results').textContent();
   assert.ok(stats.includes('9ROUNDS CLEARED') && stats.includes('3BOSSES DEFEATED'));
   await page.screenshot({ path: 'artifacts/endless-results.png' });
   await page.locator('[data-action=start]').click();
   assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.runMode,g.round,g.roundsCompleted,g.bossesDefeated]; }), ['endless',1,0,0]);
-  await page.evaluate(() => window.__patsBar.game.damage(1000));
+  await page.evaluate(() => (window.__patsBar.game.shieldCooldown = 12, window.__patsBar.game.damage(1000)));
   await page.locator('[data-action=menu]').click();
   await page.locator('[data-run-mode=normal]').click();
   await page.locator('[data-action=start]').click();
   assert.equal(await page.evaluate(() => window.__patsBar.game.runMode), 'normal');
+  await page.evaluate(() => {
+    const g=window.__patsBar.game; g.upgrades.damage=2; g.upgrades.rate=5;
+    g.superBuffs.add('shield'); g.xp=12; g.checkLevel();
+  });
+  await page.waitForSelector('.power-inventory');
+  let inventory = await page.locator('.power-inventory').textContent();
+  assert.ok(inventory.includes('Upgrade stacks: 7') && inventory.includes('2/5') && inventory.includes('5/5 MAX') && inventory.includes('Super buffs: 1/4'));
+  await page.locator('.inventory-item').first().focus();
+  assert.equal(await page.locator('.inventory-item').first().locator('.inventory-description').isVisible(), true);
+  // Render the maximum inventory to check layout, even though all-capped levels normally heal.
+  await page.evaluate(() => {
+    const g=window.__patsBar.game; Object.assign(g.upgrades,{damage:5,rate:5,count:3,pierce:3,speed:4,health:4,magnet:4});
+    for(const id of ['explosive','orbit','shield','trail'])g.superBuffs.add(id);
+    g.level++;
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.inventory-item').length===11);
+  inventory=await page.locator('.power-inventory').textContent();
+  assert.ok(inventory.includes('Upgrade stacks: 28') && inventory.includes('Super buffs: 4/4'));
+  assert.equal((inventory.match(/MAX/g)||[]).length,7);
+  for (const [width,height] of [[1440,900],[900,650]]) {
+    await page.setViewportSize({width,height});
+    await page.locator('.power-inventory').scrollIntoViewIfNeeded();
+    await page.screenshot({path:`artifacts/inventory-${width}.png`});
+    assert.ok(await page.locator('.upgrade-modal').evaluate(el => {
+      const r=el.getBoundingClientRect(); return r.top>=0 && r.bottom<=innerHeight && el.scrollWidth<=el.clientWidth+1;
+    }));
+  }
+  await page.evaluate(() => { const g=window.__patsBar.game; g.menu(); g.start(); g.xp=12; g.checkLevel(); });
+  await page.waitForFunction(() => document.querySelector('.power-inventory')?.textContent.includes('No power-ups yet'));
   assert.deepEqual(errors, []); console.log('Browser QA passed: movement, mouse fire, dodge, pause, upgrades, boss, win/loss, restart, focus loss, resize; no page errors.');
   await browser.close();
 })().catch(e => { console.error(e); process.exitCode = 1; });

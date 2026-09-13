@@ -1,5 +1,13 @@
 export type EnemyKind = 'olive' | 'bottle' | 'boss';
-export type Mode = 'title' | 'playing' | 'upgrade' | 'paused' | 'victory' | 'defeat';
+export type Mode = 'title' | 'playing' | 'upgrade' | 'super' | 'paused' | 'victory' | 'defeat';
+export const HEALING = { round: 30, boss: 45 };
+export type SuperBuffId = 'explosive' | 'orbit' | 'shield' | 'trail';
+export const SUPER_BUFFS: { id: SuperBuffId; name: string; icon: string; description: string }[] = [
+  { id: 'explosive', name: 'Explosive Caps', icon: '✹', description: 'First impact blasts nearby enemies for 40% cap damage.' },
+  { id: 'orbit', name: 'Bar Orbit', icon: '◎', description: 'An orbiting cap deals weapon damage on contact every 0.5 seconds.' },
+  { id: 'shield', name: 'House Shield', icon: '◇', description: 'Block one hit. Recharges after 12 seconds of active play.' },
+  { id: 'trail', name: 'Hot Foot', icon: '♨', description: 'Dodging leaves a 3-second trail dealing 50% weapon damage every 0.5 seconds.' },
+];
 export type RunMode = 'normal' | 'endless';
 export type Encounter = 'wave' | 'boss';
 export type UpgradeId = 'damage' | 'rate' | 'count' | 'pierce' | 'speed' | 'health' | 'magnet';

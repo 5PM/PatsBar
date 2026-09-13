@@ -132,6 +132,21 @@ export class View {
     this.heroShadow.position.set(this.hero.position.x, .026, this.hero.position.z); this.ring.position.set(this.hero.position.x, .028, this.hero.position.z);
     this.ring.rotation.z = time * .3; this.aimRing.position.set(aim.x, .035, aim.z); this.aimRing.visible = game.mode === 'playing';
     const live = new Set<number>(); this.warning.visible = false; this.warningLine.visible = false;
+    if (game.superBuffs.has('orbit')) {
+      live.add(-1);
+      if (!this.actors.has(-1)) { const o = new T.Mesh(this.shape('orbit-cap', () => new T.CylinderGeometry(.25, .25, .12, 12)), this.material('#ffdf88', .7)); this.world.add(o); this.actors.set(-1, o); }
+      const point = game.orbitPosition; this.actors.get(-1)!.position.set(point.x, .6, point.z); this.actors.get(-1)!.rotation.z = time * 8;
+    }
+    if (game.superBuffs.has('shield') && game.shieldCooldown <= 0) {
+      live.add(-2);
+      if (!this.actors.has(-2)) { const o = this.flatRing(.85, .94, '#93e9ff'); this.world.add(o); this.actors.set(-2, o); }
+      this.actors.get(-2)!.position.set(p.x, .12, p.z);
+    }
+    for (const trail of game.trails) {
+      live.add(trail.id);
+      if (!this.actors.has(trail.id)) { const o = new T.Mesh(this.shape('trail', () => new T.CircleGeometry(.6, 16)), new T.MeshBasicMaterial({ color: '#ff914b', transparent: true, opacity: .45, depthWrite: false })); o.rotation.x = -Math.PI / 2; this.world.add(o); this.actors.set(trail.id, o); }
+      const o = this.actors.get(trail.id)! as T.Mesh<T.BufferGeometry, T.MeshBasicMaterial>; o.position.set(trail.x, .06, trail.z); o.material.opacity = .4 * trail.life / 3;
+    }
     for (const e of game.enemies) {
       live.add(e.id); if (!this.actors.has(e.id)) { const o = this.createEnemy(e.kind); this.world.add(o); this.actors.set(e.id, o); }
       const o = this.actors.get(e.id)!; o.position.set(e.x, 0, e.z);
@@ -151,7 +166,7 @@ export class View {
       live.add(orb.id); if (!this.actors.has(orb.id)) { const o = new T.Mesh(this.shape('xp', () => new T.OctahedronGeometry(.18)), this.material('#9bffc7', .2)); this.world.add(o); this.actors.set(orb.id, o); }
       const o = this.actors.get(orb.id)!; o.position.set(orb.x, .22 + Math.sin(time * 3 + orb.id) * .07, orb.z); o.rotation.y = time;
     }
-    for (const e of game.effects) { live.add(e.id); if (!this.actors.has(e.id)) { const o = this.flatRing(.15, .22, e.color); this.world.add(o); this.actors.set(e.id, o); } const o = this.actors.get(e.id)!; o.position.set(e.x, .1, e.z); o.scale.setScalar(1 + (1 - e.life / .4) * 3); (o as T.Mesh<T.BufferGeometry, T.MeshBasicMaterial>).material.opacity = e.life / .4; }
+    for (const e of game.effects) { live.add(e.id); if (!this.actors.has(e.id)) { const o = this.flatRing(.15, .22, e.color); this.world.add(o); this.actors.set(e.id, o); } const o = this.actors.get(e.id)!; o.position.set(e.x, .1, e.z); o.scale.setScalar(e.radius ? e.radius / .22 * (1 - e.life / .4) : 1 + (1 - e.life / .4) * 3); (o as T.Mesh<T.BufferGeometry, T.MeshBasicMaterial>).material.opacity = e.life / .4; }
     for (const [id, actor] of this.actors) if (!live.has(id)) { this.world.remove(actor); actor.traverse(o => { if (o instanceof T.Sprite) o.material.dispose(); if (o instanceof T.Mesh && ![...this.materials.values()].includes(o.material)) { (o.material as T.Material).dispose(); if (![...this.geometries.values()].includes(o.geometry)) o.geometry.dispose(); } }); this.actors.delete(id); }
     this.renderer.render(this.scene, this.camera);
   }

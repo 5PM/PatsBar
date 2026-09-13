@@ -1,12 +1,18 @@
-import { ARENA, bossDifficulty, clamp, ENEMIES, type EnemyKind, type Mode, type RunMode, type Encounter, UPGRADES, type UpgradeId, waveDifficulty, WEAPON, xpRequired } from './config';
+import { ARENA, bossDifficulty, clamp, ENEMIES, HEALING, SUPER_BUFFS, type SuperBuffId, type EnemyKind, type Mode, type RunMode, type Encounter, UPGRADES, type UpgradeId, waveDifficulty, WEAPON, xpRequired } from './config';
 export interface Vec { x: number; z: number }
 export interface Enemy extends Vec { id: number; kind: EnemyKind; hp: number; maxHp: number; radius: number; speed: number; damage: number; projectileDamage: number; recovery: number; cooldown: number; flash: number; phase: 'rest' | 'warning' | 'charge'; phaseTime: number; target: Vec; attack: number }
 export interface Bullet extends Vec { id: number; vx: number; vz: number; life: number; hostile: boolean; damage: number; remaining: number; hit: Set<number> }
 export interface Pickup extends Vec { id: number; value: number }
-export interface Effect extends Vec { id: number; life: number; color: string }
+export interface Effect extends Vec { id: number; life: number; color: string; radius?: number }
+export interface Trail extends Vec { id: number; life: number }
 export interface Input { x: number; z: number; aim: Vec; fire: boolean; dodge: boolean }
 export class Game {
-  mode: Mode = 'title'; resumeMode: 'playing' | 'upgrade' = 'playing';
+  mode: Mode = 'title'; resumeMode: 'playing' | 'upgrade' | 'super' = 'playing';
+  superBuffs = new Set<SuperBuffId>(); superChoices: SuperBuffId[] = [];
+  shieldCooldown = 0; trails: Trail[] = []; orbitHits = new Map<number, number>(); trailHits = new Map<number, number>();
+  private pendingEncounter = false; private pendingSuper = false;
+  get weaponDamage() { return WEAPON.damage * (1 + this.upgrades.damage * .25); }
+  get orbitPosition() { return { x: this.player.x + Math.cos(this.elapsed * Math.PI) * 1.6, z: this.player.z + Math.sin(this.elapsed * Math.PI) * 1.6 }; }
   runMode: RunMode = 'normal'; encounter: Encounter = 'wave'; round = 1; roundsCompleted = 0; bossesDefeated = 0;
   bossCleared = false;
   get bossNumber() { return Math.floor(this.round / 3); }
@@ -21,10 +27,30 @@ export class Game {
   }
   menu() { const selected = this.runMode; this.start(selected); this.mode = 'title'; }
   private advanceEncounter() {
-    const finishedWave = this.encounter === 'wave';
-    this.player.hp = Math.min(this.player.maxHp, this.player.hp + 20);
+    this.pendingEncounter = true;
+    this.pendingSuper = this.encounter === 'boss' && this.runMode === 'endless';
+    this.player.hp = Math.min(this.player.maxHp, this.player.hp + (this.pendingSuper ? HEALING.boss : HEALING.round));
     this.xp += this.pickups.reduce((sum, o) => sum + o.value, 0); this.pickups = [];
     this.bullets = this.bullets.filter(b => !b.hostile);
+    this.continueRewards();
+  }
+  private continueRewards() {
+    while (this.xp >= xpRequired(this.level)) { this.checkLevel(); if (this.mode === 'upgrade') return; }
+    if (this.pendingSuper) {
+      this.pendingSuper = false;
+      const available = SUPER_BUFFS.map(b => b.id).filter(id => !this.superBuffs.has(id));
+      this.superChoices = [];
+      while (available.length && this.superChoices.length < 3) this.superChoices.push(available.splice(Math.floor(this.random() * available.length), 1)[0]);
+      if (this.superChoices.length) { this.mode = 'super'; return; }
+    }
+    if (this.pendingEncounter) { this.pendingEncounter = false; this.beginNextEncounter(); }
+  }
+  chooseSuper(id: SuperBuffId) {
+    if (this.mode !== 'super' || !this.superChoices.includes(id) || this.superBuffs.has(id)) return;
+    this.superBuffs.add(id); this.superChoices = []; this.mode = 'playing'; this.continueRewards();
+  }
+  private beginNextEncounter() {
+    const finishedWave = this.encounter === 'wave';
     this.waveTime = 0; this.nextSpawn = 1.5;
     if (finishedWave) this.roundsCompleted++;
     if (finishedWave && this.round % 3 === 0) {
@@ -37,14 +63,14 @@ export class Game {
     }
   }
   announce(text: string) { this.banner = text; this.bannerTime = 3; }
-  pause() { if (this.mode === 'playing' || this.mode === 'upgrade') { this.resumeMode = this.mode; this.mode = 'paused'; } else if (this.mode === 'paused') this.mode = this.resumeMode; }
+  pause() { if (this.mode === 'playing' || this.mode === 'upgrade' || this.mode === 'super') { this.resumeMode = this.mode; this.mode = 'paused'; } else if (this.mode === 'paused') this.mode = this.resumeMode; }
   choose(id: UpgradeId) {
     if (this.mode !== 'upgrade' || !this.choices.includes(id)) return;
     const config = UPGRADES.find(u => u.id === id)!;
     if (this.upgrades[id] >= config.cap) return;
     this.upgrades[id]++;
     if (id === 'health') { this.player.maxHp += 25; this.player.hp = Math.min(this.player.maxHp, this.player.hp + 35); }
-    this.choices = []; this.mode = 'playing'; this.checkLevel();
+    this.choices = []; this.mode = 'playing'; this.continueRewards();
   }
   checkLevel() {
     if (this.xp < xpRequired(this.level)) return;
@@ -69,12 +95,15 @@ export class Game {
   }
   damage(amount: number) {
     if (amount <= 0 || this.player.invulnerable > 0 || this.mode !== 'playing') return;
+    if (this.superBuffs.has('shield') && this.shieldCooldown <= 0) {
+      this.shieldCooldown = 12; this.player.invulnerable = .9; this.effect(this.player, '#93e9ff', 1); return;
+    }
     this.player.hp = Math.max(0, this.player.hp - amount); this.player.invulnerable = .9;
     this.effect(this.player, '#ff745c');
     this.onHurt();
     if (!this.player.hp) this.mode = 'defeat';
   }
-  effect(pos: Vec, color: string) { if (this.effects.length < 80) this.effects.push({ ...pos, id: ++this.sequence, life: .4, color }); }
+  effect(pos: Vec, color: string, radius?: number) { if (this.effects.length < 80) this.effects.push({ ...pos, id: ++this.sequence, life: .4, color, radius }); }
   shoot(pos: Vec, angle: number, hostile = false, hostileDamage = 14) {
     if (this.bullets.length >= 240) return;
     const speed = hostile ? 5.2 : WEAPON.speed;
@@ -83,12 +112,18 @@ export class Game {
   step(dt: number, input: Input) {
     if (this.mode !== 'playing') return;
     this.elapsed += dt; this.bannerTime -= dt; this.waveTime += dt;
+    this.shieldCooldown = Math.max(0, this.shieldCooldown - dt);
+    this.trails.forEach(t => t.life -= dt); this.trails = this.trails.filter(t => t.life > 0);
     const p = this.player; p.invulnerable = Math.max(0, p.invulnerable - dt); p.dodge = Math.max(0, p.dodge - dt); p.dash = Math.max(0, p.dash - dt);
     const length = Math.hypot(input.x, input.z); const mx = length ? input.x / length : 0, mz = length ? input.z / length : 0;
     if (input.dodge && p.dodge === 0) { const a = Math.atan2(input.aim.x - p.x, input.aim.z - p.z); p.dx = length ? mx : Math.sin(a); p.dz = length ? mz : Math.cos(a); p.dash = .2; p.dodge = 2.5; p.invulnerable = .32; this.effect(p, '#b4f3d2'); }
     const speed = 4.6 * (1 + this.upgrades.speed * .1);
     p.x = clamp(p.x + (p.dash > 0 ? p.dx * 17 : mx * speed) * dt, -ARENA.x + .5, ARENA.x - .5);
     p.z = clamp(p.z + (p.dash > 0 ? p.dz * 17 : mz * speed) * dt, -ARENA.z + .5, ARENA.z - .5);
+    if (p.dash > 0 && this.superBuffs.has('trail')) {
+      if (this.trails.length >= 32) this.trails.shift();
+      this.trails.push({ x: p.x, z: p.z, id: ++this.sequence, life: 3 });
+    }
     this.fireTime -= dt;
     if (input.fire && this.fireTime <= 0) {
       this.fireTime = WEAPON.interval / (1 + this.upgrades.rate * .18); this.shots++;
@@ -129,7 +164,23 @@ export class Game {
       if (b.hostile) { if (Math.hypot(b.x - p.x, b.z - p.z) < .48) { this.damage(b.damage); b.life = 0; } }
       else for (const e of this.enemies) {
         if (b.life <= 0 || e.hp <= 0 || b.hit.has(e.id)) continue;
-        if (Math.hypot(b.x - e.x, b.z - e.z) < e.radius + .2) { e.hp -= b.damage; e.flash = .12; b.hit.add(e.id); b.remaining--; this.effect(e, '#e9c978'); if (b.remaining <= 0) b.life = 0; }
+        if (Math.hypot(b.x - e.x, b.z - e.z) < e.radius + .2) {
+          if (!b.hit.size && this.superBuffs.has('explosive')) {
+            this.effect(e, '#ffb65e', 1.5);
+            for (const other of this.enemies) if (other.id !== e.id && other.hp > 0 && Math.hypot(other.x - e.x, other.z - e.z) <= 1.5) { other.hp -= b.damage * .4; other.flash = .12; }
+          }
+          e.hp -= b.damage; e.flash = .12; b.hit.add(e.id); b.remaining--; this.effect(e, '#e9c978'); if (b.remaining <= 0) b.life = 0;
+        }
+      }
+    }
+    const orbit = this.orbitPosition;
+    for (const e of this.enemies) {
+      if (e.hp <= 0) continue;
+      if (this.superBuffs.has('orbit') && Math.hypot(e.x - orbit.x, e.z - orbit.z) <= e.radius + .2 && (this.orbitHits.get(e.id) ?? 0) <= this.elapsed) {
+        e.hp -= this.weaponDamage; e.flash = .12; this.orbitHits.set(e.id, this.elapsed + .5); this.effect(e, '#f8da8a');
+      }
+      if (e.hp > 0 && this.trails.some(t => Math.hypot(e.x - t.x, e.z - t.z) <= .6) && (this.trailHits.get(e.id) ?? 0) <= this.elapsed) {
+        e.hp -= this.weaponDamage * .5; e.flash = .12; this.trailHits.set(e.id, this.elapsed + .5); this.effect(e, '#ff9559');
       }
     }
     for (const e of this.enemies.filter(e => e.hp <= 0)) {
@@ -145,6 +196,8 @@ export class Game {
       }
     }
     this.enemies = this.enemies.filter(e => e.hp > 0); this.bullets = this.bullets.filter(b => b.life > 0);
+    const living = new Set(this.enemies.map(e => e.id));
+    for (const hits of [this.orbitHits, this.trailHits]) for (const [id, until] of hits) if (!living.has(id) || until <= this.elapsed) hits.delete(id);
     for (const orb of this.pickups) {
       const dx = p.x - orb.x, dz = p.z - orb.z, d = Math.hypot(dx, dz);
       if (d < 2 * (1 + this.upgrades.magnet * .45)) { const amount = Math.min(d, dt * 10); orb.x += dx / (d || 1) * amount; orb.z += dz / (d || 1) * amount; }
@@ -153,8 +206,8 @@ export class Game {
     this.pickups = this.pickups.filter(o => o.value > 0);
     this.effects.forEach(e => e.life -= dt); this.effects = this.effects.filter(e => e.life > 0);
     if (this.mode !== 'playing') return;
-    this.checkLevel();
     const cleared = this.encounter === 'wave' ? this.waveTime >= difficulty.duration : this.bossCleared;
     if (cleared && !this.enemies.length) this.advanceEncounter();
+    else this.checkLevel();
   }
 }

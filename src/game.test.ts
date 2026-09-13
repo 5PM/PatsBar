@@ -3,6 +3,63 @@ import assert from 'node:assert/strict';
 import { Game, type Input } from './game';
 import { bossDifficulty, ENEMIES, UPGRADES, waveDifficulty, xpRequired } from './config';
 const idle: Input = { x: 0, z: 0, aim: { x: 0, z: -5 }, fire: false, dodge: false };
+function bossReward(g: Game) { g.round = 3; g.encounter = 'boss'; g.enemies = []; g.spawn('boss', { x: 10, z: -5 }).hp = 0; g.step(.01, idle); }
+test('boss rewards follow banked XP upgrades, freeze gameplay, and apply only once', () => {
+  const g = new Game(() => .5); g.start('endless'); g.player.hp = 10;
+  g.pickups.push({ id: 900, x: 10, z: 7, value: 12 }); bossReward(g);
+  assert.equal(g.player.hp, 55); assert.equal(g.mode, 'upgrade'); assert.equal(g.round, 3);
+  const elapsed = g.elapsed; g.step(2, idle); assert.equal(g.elapsed, elapsed); assert.equal(g.player.hp, 55);
+  g.choose(g.choices.find(id => id !== 'health')!); assert.equal(g.mode, 'super');
+  assert.equal(g.superChoices.length, 3); assert.equal(new Set(g.superChoices).size, 3);
+  const choice = g.superChoices[0]; g.pause(); g.step(10, idle); g.pause(); assert.equal(g.mode, 'super');
+  g.chooseSuper(choice); assert.equal(g.round, 4); assert.equal(g.waveTime, 0); assert.ok(g.superBuffs.has(choice));
+  g.chooseSuper(choice); assert.equal(g.superBuffs.size, 1); assert.equal(g.player.hp, 55);
+});
+test('all four super buffs are unique and later bosses only heal; restart clears everything', () => {
+  const g = new Game(() => .1); g.start('endless');
+  for (let i = 0; i < 4; i++) { bossReward(g); assert.equal(g.superChoices.length, Math.min(3, 4 - i)); assert.ok(g.superChoices.every(id => !g.superBuffs.has(id))); g.chooseSuper(g.superChoices[0]); }
+  g.player.hp = 10; bossReward(g); assert.equal(g.player.hp, 55); assert.equal(g.mode, 'playing'); assert.equal(g.superChoices.length, 0);
+  g.shieldCooldown = 5; g.menu(); assert.equal(g.superBuffs.size, 0); assert.equal(g.shieldCooldown, 0); assert.equal(g.trails.length, 0);
+});
+test('regular healing is 30 in both modes, and dead players get no rewards', () => {
+  for (const mode of ['normal','endless'] as const) { const g = new Game(); g.start(mode); g.player.hp = 25; g.waveTime = 60; g.step(.01,idle); assert.equal(g.player.hp,55); }
+  const g = new Game(); g.start('endless'); g.player.hp = 1; g.waveTime = 60; g.spawn('olive',g.player); g.step(.01,idle); assert.equal(g.mode,'defeat'); assert.equal(g.player.hp,0); assert.equal(g.superChoices.length,0);
+});
+test('explosions occur once per piercing cap and do not chain or double-hit their direct target', () => {
+  const g = new Game(); g.start(); g.superBuffs.add('explosive'); g.upgrades.pierce = 2;
+  const a = g.spawn('bottle',{x:0,z:2.5}), b = g.spawn('bottle',{x:1,z:2.5}), c = g.spawn('bottle',{x:2.4,z:2.5});
+  for (const e of [a,b,c]) e.speed = 0;
+  g.shoot(g.player,Math.PI); g.step(.01,idle);
+  assert.equal(a.hp,a.maxHp-18); assert.equal(b.hp,b.maxHp-7.2); assert.equal(c.hp,c.maxHp);
+  const shot=g.bullets[0]; shot.x=b.x; shot.z=b.z; shot.vx=shot.vz=0; g.step(.01,idle);
+  assert.equal(c.hp,c.maxHp); assert.equal(g.effects.filter(e=>e.radius===1.5).length,1);
+});
+test('shield respects invulnerability, blocks silently, recharges during play, and freezes when paused', () => {
+  let grunts=0; const g = new Game(Math.random,()=>grunts++); g.start(); g.superBuffs.add('shield');
+  g.player.invulnerable=.2; g.damage(10); assert.equal(g.shieldCooldown,0);
+  g.player.invulnerable=0; g.damage(10); assert.equal(g.player.hp,100); assert.equal(grunts,0); assert.equal(g.shieldCooldown,12);
+  g.pause(); g.step(12,idle); assert.equal(g.shieldCooldown,12); g.pause();
+  g.nextSpawn=999; for(let i=0;i<721;i++)g.step(1/60,idle);
+  assert.equal(g.shieldCooldown,0); g.damage(10); assert.equal(g.player.hp,100);
+  g.player.invulnerable=0; g.damage(10); assert.equal(g.player.hp,90); assert.equal(grunts,1);
+});
+test('orbit uses current damage, per-enemy cooldowns, and cleans dead records', () => {
+  const g=new Game();g.start();g.superBuffs.add('orbit');g.upgrades.damage=2;
+  const e=g.spawn('bottle',g.orbitPosition);e.speed=0;g.step(.01,idle);assert.equal(e.hp,e.maxHp-g.weaponDamage);
+  Object.assign(e,g.orbitPosition);g.step(.01,idle);assert.equal(e.hp,e.maxHp-g.weaponDamage);
+  g.orbitHits.set(e.id,0);Object.assign(e,g.orbitPosition);g.step(.01,idle);assert.equal(e.hp,e.maxHp-2*g.weaponDamage);
+  e.hp=0;g.step(.01,idle);assert.equal(g.orbitHits.size,0);
+});
+test('dodge trail expires, stays bounded, and overlapping segments share a hit cooldown', () => {
+  const g=new Game();g.start();g.superBuffs.add('trail');g.nextSpawn=999;
+  g.step(.01,{...idle,dodge:true,x:1});assert.ok(g.trails.length>0);
+  const e=g.spawn('bottle',{x:5,z:0});e.speed=0;
+  for(let i=0;i<10;i++)g.trails.push({id:100+i,x:5,z:0,life:3});
+  g.step(.01,idle);assert.equal(e.hp,e.maxHp-g.weaponDamage*.5);g.step(.01,idle);assert.equal(e.hp,e.maxHp-g.weaponDamage*.5);
+  g.pause();const life=g.trails[0].life;g.step(3,idle);assert.equal(g.trails[0].life,life);g.pause();
+  for(let i=0;i<40;i++){g.player.dash=.2;g.step(.01,idle);assert.ok(g.trails.length<=32);}
+  g.player.dash=0;for(let i=0;i<190;i++)g.step(1/60,idle);assert.equal(g.trails.length,0);
+});
 test('hurt sound fires only on actual damage and remains connected after restart', () => {
   let grunts = 0; const g = new Game(Math.random, () => grunts++); g.start();
   g.damage(0); assert.equal(grunts, 0);
@@ -65,6 +122,7 @@ test('Endless cycles through bosses after 3, 6, 9, and 12 without victory', () =
         g.nextSpawn = 0; g.step(.01, idle); assert.equal(g.enemies.length, 1);
         g.enemies[0].hp = 0; g.step(.01, idle);
       }
+      while (g.mode === 'upgrade' || g.mode === 'super') { if (g.mode === 'upgrade') g.choose(g.choices[0]); else g.chooseSuper(g.superChoices[0]); }
       assert.equal(g.encounter, 'wave'); assert.equal(g.round, round + 1);
     }
     while (g.mode === 'upgrade') g.choose(g.choices[0]);
@@ -112,9 +170,9 @@ test('reinforcements respect timing and the twelve-enemy cap', () => {
 test('transitions bank XP and heal once, retain upgrades, and wait during upgrade selection', () => {
   const g = new Game(); g.start('endless'); g.round = 3; g.waveTime = 60; g.player.hp = 50; g.upgrades.damage = 2;
   g.pickups.push({ id: 100, x: 10, z: 7, value: 3 }); g.shoot({ x: 10, z: 7 }, 0, true);
-  g.step(.01, idle); assert.equal(g.player.hp, 70); assert.equal(g.xp, 3); assert.equal(g.pickups.length, 0); assert.equal(g.bullets.length, 0);
-  g.enemies[0].hp = 0; g.step(.01, idle); assert.equal(g.player.hp, 90); assert.equal(g.round, 4); assert.equal(g.upgrades.damage, 2);
-  g.step(.01, idle); assert.equal(g.player.hp, 90);
+  g.step(.01, idle); assert.equal(g.player.hp, 80); assert.equal(g.xp, 3); assert.equal(g.pickups.length, 0); assert.equal(g.bullets.length, 0);
+  g.enemies[0].hp = 0; g.step(.01, idle); g.chooseSuper(g.superChoices[0]); assert.equal(g.player.hp, 100); assert.equal(g.round, 4); assert.equal(g.upgrades.damage, 2);
+  g.step(.01, idle); assert.equal(g.player.hp, 100);
   for (const u of UPGRADES) g.upgrades[u.id] = u.cap;
   g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.player.hp, 100); assert.equal(g.mode, 'playing');
 });

@@ -7,5 +7,20 @@
 .title-card>p { margin-bottom:18px; }
 .menu-button { display:block; margin:22px auto 0; padding:10px; background:none; color:#d7bc7f; border:0; font-size:10px; letter-spacing:1.5px; }
 .menu-button:hover { color:#fff0ca; }
+.overlay-super:before { content:''; position:absolute; inset:0; background:#061a14aa; backdrop-filter:blur(6px); }
+.super-modal { border-color:#e5c681; }
+.super-modal .upgrade-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+.upgrade-modal { max-height:calc(100dvh - 120px); overflow-y:auto; scrollbar-color:#b89d62 #142b20; }
+.power-inventory { margin-top:22px; padding-top:16px; border-top:1px solid #a5b78f44; text-align:left; }
+.inventory-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; }
+.inventory-heading h3 { font:18px Georgia,serif; margin:0; color:#ead4a0; }
+.inventory-heading>span,.power-inventory>p { font-size:11px; color:#b7c6ae; }
+.inventory-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+.inventory-item { position:relative; display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px; padding:10px; border:1px solid #a5b78f33; background:#203a2d; font-size:11px; }
+.inventory-item b { color:#e5c681; font-size:10px; }
+.inventory-item:focus-visible { outline:2px solid #e5c681; outline-offset:2px; }
+.inventory-description { display:none; flex-basis:100%; color:#cbd6c1; line-height:1.5; }
+.inventory-item:hover .inventory-description,.inventory-item:focus .inventory-description { display:block; }
+@media(max-width:900px) { .inventory-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 .endless-results { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
 @media(max-height:750px) { .title-card { top:16%; } .title-card h1 { font-size:56px; margin:12px 0; } .title-card h1>span { margin-top:10px; } .title-card>p { line-height:1.5; margin:10px 0 14px; } .mode-picker { margin-bottom:12px; } .mode-picker button { padding:9px 13px; } .run-note { margin-top:12px; } }
