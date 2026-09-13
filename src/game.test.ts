@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, type Input } from './game';
-import { bossDifficulty, ENEMIES, UPGRADES, waveDifficulty, xpRequired } from './config';
+import { bossDifficulty, bossReinforcementInterval, ENEMIES, UPGRADES, waveDifficulty, xpRequired } from './config';
 const idle: Input = { x: 0, z: 0, aim: { x: 0, z: -5 }, fire: false, dodge: false };
 function bossReward(g: Game) { g.round = 3; g.encounter = 'boss'; g.enemies = []; g.spawn('boss', { x: 10, z: -5 }).hp = 0; g.step(.01, idle); }
 test('boss rewards follow banked XP upgrades, freeze gameplay, and apply only once', () => {
@@ -161,7 +161,7 @@ test('later enemy stats affect contact, shots, and boss recovery without shorten
 test('reinforcements respect timing and the twelve-enemy cap', () => {
   const g = new Game(() => .5); g.start('endless'); g.round = 9; g.encounter = 'boss'; g.spawn('boss');
   g.player.invulnerable = 100; g.nextSpawn = 0; g.step(.01, idle);
-  assert.equal(g.nextSpawn, g.difficulty.interval * 2);
+  assert.equal(g.nextSpawn, 3);
   const count = g.enemies.length; g.step(.01, idle); assert.equal(g.enemies.length, count);
   for (let i = 0; i < 20; i++) { g.nextSpawn = 0; g.step(.01, idle); }
   assert.equal(g.enemies.filter(e => e.kind !== 'boss').length, 12);
@@ -184,4 +184,20 @@ test('Endless death takes precedence over a cleared encounter; menu and mode cha
   g.menu(); assert.equal(g.mode, 'title'); assert.equal(g.runMode, 'endless'); assert.equal(g.enemies.length, 0);
   g.start('normal'); assert.equal(g.runMode, 'normal'); assert.equal(g.round, 1); assert.equal(g.bossesDefeated, 0); assert.equal(g.roundsCompleted, 0);
   assert.equal(g.encounter, 'wave'); assert.equal(g.player.hp, 100); assert.equal(g.elapsed, 0);
+});
+
+test('boss reinforcements start slowly after round 9 and accelerate between bosses', () => {
+  assert.equal(bossReinforcementInterval(3), 3);
+  assert.equal(bossReinforcementInterval(4), 2.5);
+  assert.ok(Math.abs(bossReinforcementInterval(5) - 3 / 1.44) < 1e-10);
+  assert.equal(bossReinforcementInterval(100), .5);
+  const g = new Game(() => .5); g.start('endless'); g.round = 9; g.waveTime = 60;
+  g.step(.01, idle); assert.equal(g.encounter, 'boss'); assert.equal(g.nextSpawn, 3);
+  g.player.invulnerable = 10;
+  for (let i = 0; i < 179; i++) g.step(1 / 60, idle);
+  assert.equal(g.enemies.filter(e => e.kind !== 'boss').length, 0);
+  g.step(.04, idle); assert.equal(g.enemies.filter(e => e.kind !== 'boss').length, 1);
+  g.enemies.find(e => e.kind === 'boss')!.hp = 0; g.step(.01, idle);
+  g.nextSpawn = 0; g.step(.01, idle);
+  assert.equal(g.enemies.filter(e => e.kind !== 'boss').length, 1);
 });

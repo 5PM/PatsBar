@@ -75,3 +75,5 @@ After clearing a boss and its reinforcements, finish pending XP upgrades and cho
 - **Hot Foot:** dodges leave a three-second trail with radius 0.6, dealing half current weapon damage every 0.5 seconds per enemy across all segments.
 
 The Your power-ups inventory appears only on regular upgrade and super-buff selection screens. It shows owned upgrades, stack counts, MAX labels, total stacks, and super buffs out of four. Hover or focus an item to read its description. Ability timers freeze during all selection and pause screens.
+
+Boss reinforcements begin after round 9 at one enemy every 3 seconds. Each subsequent boss increases that rate by 20% (2.5 seconds after round 12, approximately 2.1 after round 15), down to a minimum interval of 0.5 seconds. The first reinforcement uses the same delay; the 12-enemy cap still applies.

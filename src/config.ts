@@ -56,3 +56,7 @@ export function bossDifficulty(runMode: RunMode, bossNumber: number) {
   const n = runMode === 'endless' ? Math.max(0, bossNumber - 1) : 0;
   return { hp: 1 + .3 * n, damage: 1 + .15 * n, recovery: Math.min(1.5, 1 + .08 * n) };
 }
+
+export function bossReinforcementInterval(bossNumber: number) {
+  return Math.max(.5, 3 / (1.2 ** Math.max(0, bossNumber - 3)));
+}

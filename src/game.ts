@@ -1,4 +1,4 @@
-import { ARENA, bossDifficulty, clamp, ENEMIES, HEALING, SUPER_BUFFS, type SuperBuffId, type EnemyKind, type Mode, type RunMode, type Encounter, UPGRADES, type UpgradeId, waveDifficulty, WEAPON, xpRequired } from './config';
+import { ARENA, bossDifficulty, bossReinforcementInterval, clamp, ENEMIES, HEALING, SUPER_BUFFS, type SuperBuffId, type EnemyKind, type Mode, type RunMode, type Encounter, UPGRADES, type UpgradeId, waveDifficulty, WEAPON, xpRequired } from './config';
 export interface Vec { x: number; z: number }
 export interface Enemy extends Vec { id: number; kind: EnemyKind; hp: number; maxHp: number; radius: number; speed: number; damage: number; projectileDamage: number; recovery: number; cooldown: number; flash: number; phase: 'rest' | 'warning' | 'charge'; phaseTime: number; target: Vec; attack: number }
 export interface Bullet extends Vec { id: number; vx: number; vz: number; life: number; hostile: boolean; damage: number; remaining: number; hit: Set<number> }
@@ -56,6 +56,7 @@ export class Game {
     if (finishedWave && this.round % 3 === 0) {
       this.encounter = 'boss'; this.bossCleared = false;
       this.spawn('boss', { x: 0, z: -5 });
+      if (this.runMode === 'endless' && this.bossNumber >= 3) this.nextSpawn = bossReinforcementInterval(this.bossNumber);
       this.announce(this.runMode === 'normal' ? 'LAST CALL · THE BIG GUY' : `BOSS ${this.bossNumber} · ${this.bossNumber >= 3 ? 'HE BROUGHT COMPANY' : 'THE BIG GUY'}`);
     } else {
       this.round++; this.encounter = 'wave'; this.bossCleared = false;
@@ -135,7 +136,7 @@ export class Game {
     if ((this.encounter === 'wave' && this.waveTime < difficulty.duration) || reinforcements) {
       this.nextSpawn -= dt;
       if (this.nextSpawn <= 0 && this.enemies.filter(e => e.kind !== 'boss').length < (reinforcements ? 12 : difficulty.max)) {
-        this.nextSpawn = difficulty.interval * (reinforcements ? 2 : 1); this.spawn(this.random() < difficulty.bottleChance ? 'bottle' : 'olive');
+        this.nextSpawn = reinforcements ? bossReinforcementInterval(this.bossNumber) : difficulty.interval; this.spawn(this.random() < difficulty.bottleChance ? 'bottle' : 'olive');
       }
     }
     for (const e of this.enemies) {
