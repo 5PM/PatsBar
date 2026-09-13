@@ -94,7 +94,7 @@ fs.mkdirSync('artifacts', { recursive: true });
     g.player.invulnerable = 100;
     for (let r = 1; r <= 9; r++) {
       g.enemies = []; g.waveTime = 60; g.step(.01, idle);
-      if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); while (['upgrade','super','equipment','training'].includes(g.mode)) { if(g.mode === 'upgrade') g.choose(g.choices[0]); else if(g.mode === 'super') g.chooseSuper(g.superChoices.find(id => id !== 'shield') || g.superChoices[0]); else if(g.mode === 'training') g.chooseTraining('power'); else g.chooseEquipment(null); } }
+      if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); while (['upgrade','bossReward','training'].includes(g.mode)) { if(g.mode === 'upgrade') g.choose(g.choices[0]); else if(g.mode === 'training') g.chooseTraining('power'); else g.chooseBossReward(null); } }
     }
     g.nextSpawn = 0; g.step(.01, idle);
     g.enemies.find(e => e.kind === 'boss').phaseTime = 10; g.bannerTime = 0;
@@ -106,21 +106,19 @@ fs.mkdirSync('artifacts', { recursive: true });
   await page.waitForFunction(() => window.__patsBar.game.bossCleared);
   assert.equal(await page.locator('#wave-name').textContent(), 'Clear the remaining enemies');
   assert.equal(await page.evaluate(() => window.__patsBar.game.round), 9);
-  await page.evaluate(() => { const g = window.__patsBar.game; g.enemies.forEach(e => e.hp = 0); });
-  await page.waitForFunction(() => window.__patsBar.game.mode === 'super');
-  await page.waitForFunction(() => document.querySelectorAll('[data-super]:disabled').length === 0);
+  await page.evaluate(() => { const g = window.__patsBar.game; g.random = () => 0; g.enemies.forEach(e => e.hp = 0); });
+  await page.waitForFunction(() => window.__patsBar.game.mode === 'bossReward');
+  await page.waitForFunction(() => document.querySelectorAll('[data-boss-reward]:disabled').length === 0);
   const frozenSuper = await page.evaluate(() => window.__patsBar.game.elapsed);
-  await page.locator('[data-super]').first().dispatchEvent('click');
-  assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'super');
+  await page.locator('[data-boss-reward]').first().dispatchEvent('click');
+  assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'bossReward');
   await page.keyboard.press('Escape'); await page.waitForTimeout(100);
   assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'paused');
   await page.locator('[data-action=resume]').click();
   await page.screenshot({path:'artifacts/super-buffs.png'});
-  await page.locator('[data-super]').first().click();
-  await page.waitForFunction(() => window.__patsBar.game.mode === 'equipment');
-  await page.locator('[data-equipment=skip]').click();
+  await page.locator('[data-boss-reward]').first().click();
   await page.waitForFunction(() => window.__patsBar.game.round === 10);
-  assert.equal(await page.evaluate(() => window.__patsBar.game.superBuffs.size), 3);
+  assert.equal(await page.evaluate(() => window.__patsBar.game.superBuffs.size), 1);
   assert.equal(await page.locator('.power-inventory').count(), 0);
   await page.evaluate(() => {
     const g = window.__patsBar.game;

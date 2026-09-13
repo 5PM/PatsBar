@@ -6,7 +6,7 @@ import { EQUIPMENT, SUPER_BUFFS, UPGRADES, WEAPON, WEAPON_PROFILES, xpRequired, 
 const idle: Input = { x: 0, z: 0, aim: { x: 0, z: -5 }, fire: false, dodge: false };
 const near = (actual: number, expected: number) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} ≠ ${expected}`);
 function game() { const g = new Game(() => .25); g.start('endless'); g.nextSpawn = 999; return g; }
-function equip(g: Game, id: EquipmentId) { g.mode = 'equipment'; g.equipmentChoices = [id]; g.chooseEquipment(id); }
+function equip(g: Game, id: EquipmentId) { g.mode = 'bossReward'; g.bossChoices = [id]; g.chooseBossReward(id); }
 function cap(g: Game) { for (const u of UPGRADES) g.upgrades[u.id] = u.cap; }
 function clearBoss(g: Game) {
   g.round = 9; g.encounter = 'boss'; g.enemies = []; g.nextSpawn = 999;
@@ -16,48 +16,56 @@ function frozenEnemy(g: Game, x: number, z: number) {
   const e = g.spawn('bottle', { x, z }); e.hp = e.maxHp = 10000; e.speed = 0; e.cooldown = 999; return e;
 }
 
-test('boss rewards order healing/XP, all levels, super buff, equipment, then a fresh round', () => {
+test('boss rewards order healing/XP, all levels, one mixed reward, then a fresh round', () => {
   const g = game(); g.player.hp = 5; g.player.maxHp = 200; equip(g, 'apron');
   g.pickups.push({ id: 900, x: 12, z: 7, value: 32 });
   g.shoot({ x: 12, z: 7 }, 0, true); clearBoss(g);
   assert.equal(g.player.hp, 64); assert.equal(g.pickups.length, 0); assert.equal(g.bullets.length, 0);
   assert.equal(g.mode, 'upgrade'); assert.equal(g.level, 2);
   g.choose(g.choices.find(id => id !== 'health')!); assert.equal(g.mode, 'upgrade'); assert.equal(g.level, 3);
-  g.choose(g.choices.find(id => id !== 'health')!); assert.equal(g.mode, 'super');
-  g.chooseSuper(g.superChoices[0]); assert.equal(g.mode, 'equipment'); assert.equal(g.round, 9);
-  const choices = [...g.equipmentChoices], elapsed = g.elapsed, waveTime = g.waveTime;
-  g.pause(); g.step(20, idle); g.chooseEquipment(choices[0]);
-  assert.deepEqual(g.equipmentChoices, choices); assert.equal(g.elapsed, elapsed);
+  g.choose(g.choices.find(id => id !== 'health')!); assert.equal(g.mode, 'bossReward');
+  assert.equal(g.round, 9);
+  const choices = [...g.bossChoices], elapsed = g.elapsed, waveTime = g.waveTime;
+  g.pause(); g.step(20, idle); g.chooseBossReward(choices[0]);
+  assert.deepEqual(g.bossChoices, choices); assert.equal(g.elapsed, elapsed);
   g.pause(); g.step(20, idle); assert.equal(g.waveTime, waveTime);
-  g.chooseEquipment(null); assert.equal(g.mode, 'playing'); assert.equal(g.round, 10); assert.equal(g.waveTime, 0);
+  g.chooseBossReward(null); assert.equal(g.mode, 'playing'); assert.equal(g.round, 10); assert.equal(g.waveTime, 0);
   assert.equal(g.player.hp, 64); assert.equal(g.armor, 'apron'); assert.equal(g.weapon, 'caps');
-  g.chooseEquipment(choices[0]); g.step(.01, idle); assert.equal(g.player.hp, 64); assert.equal(g.equipmentChoices.length, 0);
+  g.chooseBossReward(choices[0]); g.step(.01, idle); assert.equal(g.player.hp, 64); assert.equal(g.bossChoices.length, 0);
 });
 
 test('reinforcements must be cleared before any boss rewards; simultaneous death wins over rewards', () => {
   const g = game(); g.round = 9; g.encounter = 'boss'; g.player.hp = 10;
   g.spawn('boss', { x: 10, z: -5 }).hp = 0;
   const survivor = frozenEnemy(g, 7, 7); g.step(.01, idle);
-  assert.equal(g.mode, 'playing'); assert.equal(g.player.hp, 10); assert.equal(g.equipmentChoices.length, 0);
-  survivor.hp = 0; g.step(.01, idle); assert.equal(g.player.hp, 55); assert.equal(g.mode, 'super');
+  assert.equal(g.mode, 'playing'); assert.equal(g.player.hp, 10); assert.equal(g.bossChoices.length, 0);
+  survivor.hp = 0; g.step(.01, idle); assert.equal(g.player.hp, 55); assert.equal(g.mode, 'bossReward');
   const dead = game(); dead.round = 9; dead.encounter = 'boss'; dead.player.hp = 1;
   dead.spawn('boss', dead.player).hp = 0; dead.spawn('olive', dead.player); dead.step(.01, idle);
-  assert.equal(dead.mode, 'defeat'); assert.equal(dead.player.hp, 0); assert.equal(dead.equipmentChoices.length, 0);
+  assert.equal(dead.mode, 'defeat'); assert.equal(dead.player.hp, 0); assert.equal(dead.bossChoices.length, 0);
 });
 
-test('equipment offers are three distinct unequipped items with both slots represented, even after every super buff', () => {
+test('mixed offers exclude owned buffs and equipped items without forcing a category', () => {
+  const compositions = new Set<string>();
   for (const random of [0, .21, .5, .99999]) {
     const g = new Game(() => random); g.start('endless'); equip(g, 'picks'); equip(g, 'glass');
-    for (const buff of SUPER_BUFFS) g.superBuffs.add(buff.id);
     for (let i = 0; i < 5; i++) {
-      clearBoss(g); assert.equal(g.mode, 'equipment');
-      assert.equal(g.equipmentChoices.length, 3); assert.equal(new Set(g.equipmentChoices).size, 3);
-      assert.ok(g.equipmentChoices.every(id => id !== g.weapon && id !== g.armor));
-      assert.deepEqual(new Set(g.equipmentChoices.map(id => EQUIPMENT.find(e => e.id === id)!.slot)), new Set(['weapon', 'armor']));
-      const selected = g.equipmentChoices[0], oldArmor = g.armor;
-      g.chooseEquipment(selected); assert.equal(g.weapon, selected); assert.equal(g.armor, oldArmor);
+      clearBoss(g); assert.equal(g.mode, 'bossReward');
+      assert.equal(g.bossChoices.length, 3); assert.equal(new Set(g.bossChoices).size, 3);
+      assert.ok(g.bossChoices.every(id => id !== g.weapon && id !== g.armor));
+      assert.ok(SUPER_BUFFS.filter(b => g.superBuffs.has(b.id)).every(b => !g.bossChoices.includes(b.id)));
+      compositions.add(g.bossChoices.map(id => EQUIPMENT.find(e => e.id === id)?.slot ?? 'buff').sort().join(','));
+      const selected = g.bossChoices[0], oldArmor = g.armor, oldWeapon = g.weapon, oldBuffs = g.superBuffs.size;
+      const item = EQUIPMENT.find(e => e.id === selected);
+      g.chooseBossReward(selected); assert.equal(g.mode, 'playing'); assert.equal(g.round, 10);
+      assert.equal(g.weapon, item?.slot === 'weapon' ? selected : oldWeapon);
+      assert.equal(g.armor, item?.slot === 'armor' ? selected : oldArmor);
+      assert.equal(g.superBuffs.size, oldBuffs + (item ? 0 : 1));
     }
   }
+  assert.ok(compositions.has('buff,buff,buff'));
+  assert.ok(compositions.has('armor,armor,weapon'));
+  assert.ok([...compositions].some(c => c.includes('buff') && c.includes('weapon')));
 });
 
 test('armor replacement separates capacity, fills glass directly, and preserves permanent upgrades', () => {
@@ -78,11 +86,11 @@ test('apron rounds all healing sources, clamps HP, and applies before the next e
   const g = game(); equip(g, 'apron'); g.player.hp = 1;
   g.waveTime = 60; g.step(.01, idle); assert.equal(g.player.hp, 40);
   g.mode = 'upgrade'; g.choices = ['health']; g.choose('health'); assert.equal(g.player.hp, 86); assert.equal(g.player.maxHp, 125);
-  cap(g); g.player.hp = 1; g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.player.hp, 34);
+  cap(g); g.level = 29; g.player.hp = 1; g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.player.hp, 34);
   g.chooseTraining('endurance'); assert.equal(g.player.hp, 54); assert.equal(g.player.maxHp, 140);
   g.heal(1000); assert.equal(g.player.hp, 140);
   g.player.hp = 1; clearBoss(g); assert.equal(g.player.hp, 60);
-  g.chooseSuper(g.superChoices[0]); g.chooseEquipment(null); assert.equal(g.player.hp, 60);
+  g.chooseBossReward(null); assert.equal(g.player.hp, 60);
 });
 
 test('vest reduces contact and projectile damage after dodge/grace/shield without extra hurt sounds', () => {
@@ -119,9 +127,9 @@ test('weapon profiles preserve upgrades, damage, projectile limits, speed, lifet
   }
 });
 
-test('shotgun pellets expire at 0.4 seconds and picks pass through exactly their hit allowance', () => {
+test('shotgun pellets reach farther and expire at 0.7 seconds; picks keep their hit allowance', () => {
   const g = game(); equip(g, 'shotgun'); g.shoot({ x: 0, z: -5 }, 0);
-  for (let i = 0; i < 23; i++) g.step(1 / 60, idle);
+  for (let i = 0; i < 41; i++) g.step(1 / 60, idle);
   assert.equal(g.bullets.length, 1); g.step(.02, idle); assert.equal(g.bullets.length, 0);
   for (const piercing of [0, 3]) {
     const picks = game(); equip(picks, 'picks'); picks.upgrades.pierce = piercing;
@@ -169,32 +177,78 @@ test('orbit and trail scale with power training, not equipped weapon multipliers
 
 test('last regular cap precedes training; multiple banked levels heal and train one at a time', () => {
   const g = game(); cap(g); g.upgrades.magnet--; g.player.hp = 1; g.player.maxHp = 1000;
-  g.xp = xpRequired(1) + xpRequired(2) + xpRequired(3); g.checkLevel();
+  g.level = 28; g.xp = xpRequired(28) + xpRequired(29) + xpRequired(30) + xpRequired(31); g.checkLevel();
   assert.deepEqual(g.choices, ['magnet']); assert.equal(g.player.hp, 1);
-  g.choose('magnet'); assert.equal(g.mode, 'training'); assert.equal(g.level, 3); assert.equal(g.player.hp, 26);
+  g.choose('magnet'); assert.equal(g.mode, 'training'); assert.equal(g.level, 30); assert.equal(g.player.hp, 26);
   const xp = g.xp; g.checkLevel(); assert.equal(g.xp, xp);
   g.pause(); g.chooseTraining('power'); g.step(50, idle); assert.equal(g.training.power, 0); g.pause();
-  g.chooseTraining('power'); assert.equal(g.mode, 'training'); assert.equal(g.level, 4); assert.equal(g.player.hp, 51);
-  g.chooseTraining('endurance'); assert.equal(g.mode, 'playing'); assert.equal(g.player.maxHp, 1015); assert.equal(g.player.hp, 66);
+  g.chooseTraining('power'); assert.equal(g.mode, 'training'); assert.equal(g.level, 32); assert.equal(g.player.hp, 76);
+  g.chooseTraining('endurance'); assert.equal(g.mode, 'playing'); assert.equal(g.player.maxHp, 1015); assert.equal(g.player.hp, 91);
   assert.deepEqual(g.training, { power: 1, endurance: 1 }); near(g.weaponDamage, 18 * 2.25 * 1.05);
-  for (let i = 0; i < 101; i++) { g.xp = xpRequired(g.level); g.checkLevel(); g.chooseTraining('power'); }
+  for (let i = 0; i < 101; i++) {
+    g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.mode, 'playing');
+    g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.mode, 'training'); g.chooseTraining('power');
+  }
   assert.equal(g.training.power, 102); near(g.weaponDamage, 18 * 2.25 * 6.1);
 });
 
-test('boss-bank training completes before super/equipment, and menu/restart erase all pending rewards', () => {
-  const g = game(); cap(g); g.player.hp = 1;
-  g.pickups.push({ id: 999, x: 10, z: 7, value: 32 }); clearBoss(g);
+test('training starts at level 30, repeats on even levels, and waits behind any regular choice', () => {
+  for (const mode of ['normal', 'endless'] as const) {
+    const g = game(); g.start(mode); cap(g); g.player.maxHp = 1000; g.player.hp = 1;
+    for (let level = 2; level <= 36; level++) {
+      g.xp = xpRequired(g.level); g.checkLevel();
+      assert.equal(g.level, level);
+      assert.equal(g.mode, mode === 'endless' && level >= 30 && level % 2 === 0 ? 'training' : 'playing');
+      if (g.mode === 'training') g.chooseTraining('power');
+    }
+    assert.equal(g.training.power, mode === 'endless' ? 4 : 0);
+    assert.equal(g.player.hp, 1 + 35 * 25, 'Every capped level still heals, including odd levels');
+  }
+  const g = game(); g.level = 29; g.xp = xpRequired(29) + xpRequired(30);
+  g.checkLevel(); assert.equal(g.mode, 'upgrade'); g.choose(g.choices[0]);
+  assert.equal(g.mode, 'training'); assert.equal(g.level, 30);
+  g.chooseTraining('endurance'); assert.equal(g.mode, 'upgrade'); assert.equal(g.level, 31);
+  g.choose(g.choices[0]); assert.equal(g.mode, 'playing');
+  g.level = 31; g.xp = xpRequired(31); g.checkLevel(); g.menu();
+  g.start('endless'); g.xp = 12; g.checkLevel(); g.choose(g.choices[0]);
+  assert.equal(g.mode, 'playing'); assert.equal(g.training.endurance, 0);
+});
+
+test('buffed shotgun more than doubles sustained close-range damage and reaches beyond the old range', () => {
+  function damageOverTime(legacy: boolean, distance: number) {
+    const g = game(); equip(g, 'shotgun');
+    const e = frozenEnemy(g, 0, g.player.z - distance);
+    // Wrap shots to reproduce the old profile without changing the shared configuration.
+    const shoot = g.shoot.bind(g);
+    if (legacy) g.shoot = (...args) => {
+      const count = g.bullets.length; shoot(...args);
+      if (g.bullets.length > count) { const b = g.bullets.at(-1)!; b.damage = g.weaponDamage * .5; b.life = .4; }
+    };
+    for (let i = 0; i < 600; i++) {
+      const shots = g.shots;
+      g.step(1 / 60, { ...idle, aim: e, fire: true });
+      if (legacy && g.shots > shots) g.fireTime = .32 * 1.6;
+    }
+    return e.maxHp - e.hp;
+  }
+  assert.ok(damageOverTime(false, 1.5) > damageOverTime(true, 1.5) * 2);
+  assert.equal(damageOverTime(true, 11), 0);
+  assert.ok(damageOverTime(false, 11) > 0);
+});
+
+test('boss-bank training completes before the mixed reward, and menu/restart erase pending rewards', () => {
+  const g = game(); cap(g); g.player.hp = 1; g.player.maxHp = 200; g.level = 29;
+  g.pickups.push({ id: 999, x: 10, z: 7, value: xpRequired(29) + xpRequired(30) + xpRequired(31) }); clearBoss(g);
   assert.equal(g.mode, 'training'); assert.equal(g.player.hp, 71);
-  g.chooseTraining('power'); assert.equal(g.mode, 'training'); assert.equal(g.player.hp, 96);
-  g.chooseTraining('endurance'); assert.equal(g.mode, 'super'); assert.equal(g.player.hp, 111);
-  g.chooseSuper(g.superChoices[0]); assert.equal(g.mode, 'equipment');
-  const selected = g.equipmentChoices[0]; g.chooseEquipment(selected); assert.equal(g.round, 10);
+  g.chooseTraining('power'); assert.equal(g.mode, 'training'); assert.equal(g.player.hp, 121);
+  g.chooseTraining('endurance'); assert.equal(g.mode, 'bossReward'); assert.equal(g.player.hp, 136);
+  const selected = g.bossChoices[0]; g.chooseBossReward(selected); assert.equal(g.round, 10);
   clearBoss(g); g.menu();
   assert.equal(g.weapon, 'caps'); assert.equal(g.armor, 'none'); assert.equal(g.armorHp, 0);
-  assert.deepEqual(g.training, { power: 0, endurance: 0 }); assert.equal(g.equipmentChoices.length, 0);
+  assert.deepEqual(g.training, { power: 0, endurance: 0 }); assert.equal(g.bossChoices.length, 0);
   g.start('normal'); g.xp = 12; g.checkLevel(); g.choose(g.choices[0]);
   assert.equal(g.mode, 'playing'); assert.equal(g.round, 1); assert.equal(g.encounter, 'wave');
-  assert.equal(g.player.maxHp, 100); assert.equal(g.superChoices.length, 0);
+  assert.equal(g.player.maxHp, 100); assert.equal(g.bossChoices.length, 0);
 });
 
 test('Normal never offers equipment/training and ignores Endless combat and healing bonuses', () => {
@@ -206,5 +260,5 @@ test('Normal never offers equipment/training and ignores Endless combat and heal
   g.shoot(g.player, 0); assert.equal(g.bullets[0].weapon, 'caps');
   g.armor = 'vest'; g.damage(10); assert.equal(g.player.hp, 50);
   g.round = 3; g.encounter = 'boss'; g.spawn('boss', { x: 10, z: -5 }).hp = 0; g.step(.01, idle);
-  assert.equal(g.mode, 'victory'); assert.equal(g.equipmentChoices.length, 0); assert.equal(g.superChoices.length, 0);
+  assert.equal(g.mode, 'victory'); assert.equal(g.bossChoices.length, 0); assert.equal(g.bossChoices.length, 0);
 });

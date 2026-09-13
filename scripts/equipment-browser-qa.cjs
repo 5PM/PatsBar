@@ -19,31 +19,31 @@ fs.mkdirSync('artifacts', { recursive: true });
       g.round = 3; g.encounter = 'boss'; g.enemies = []; g.bullets = []; g.nextSpawn = 999;
       g.spawn('boss', { x: 10, z: -5 }).hp = 0;
     });
-    await page.waitForSelector('[data-equipment]'); await page.waitForTimeout(300);
-    assert.equal(await page.locator('[data-equipment]:disabled').count(), 4, 'Held click locks equipment and skip');
+    await page.waitForSelector('[data-boss-reward]'); await page.waitForTimeout(300);
+    assert.equal(await page.locator('[data-boss-reward]:disabled').count(), 4, 'Held click locks equipment and skip');
     const elapsed = await page.evaluate(() => window.__patsBar.game.elapsed);
     await page.mouse.up();
-    await page.waitForFunction(() => document.querySelectorAll('[data-equipment]:disabled').length === 0);
-    assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'equipment');
-    await page.locator('[data-equipment=skip]').dispatchEvent('click');
-    assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'equipment', 'Skip needs a fresh press');
-    await page.locator('[data-equipment]').first().dispatchEvent('click');
-    assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'equipment');
-    const choices = await page.evaluate(() => [...window.__patsBar.game.equipmentChoices]);
+    await page.waitForFunction(() => document.querySelectorAll('[data-boss-reward]').length === 4 && document.querySelectorAll('[data-boss-reward]:disabled').length === 0);
+    assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'bossReward');
+    await page.locator('[data-boss-reward=skip]').dispatchEvent('click');
+    assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'bossReward', 'Skip needs a fresh press');
+    await page.locator('[data-boss-reward]').first().dispatchEvent('click');
+    assert.equal(await page.evaluate(() => window.__patsBar.game.mode), 'bossReward');
+    const choices = await page.evaluate(() => [...window.__patsBar.game.bossChoices]);
     assert.equal(new Set(choices).size, 3);
     assert.ok(await page.locator('.gear-comparison').first().textContent().then(t => t.includes('Bottle Caps')));
     await page.evaluate(() => window.dispatchEvent(new Event('blur')));
     await page.waitForFunction(() => window.__patsBar.game.mode === 'paused');
     await page.locator('[data-action=resume]').click();
-    await page.waitForSelector('[data-equipment]');
-    assert.deepEqual(await page.evaluate(() => window.__patsBar.game.equipmentChoices), choices);
+    await page.waitForSelector('[data-boss-reward]');
+    assert.deepEqual(await page.evaluate(() => window.__patsBar.game.bossChoices), choices);
     assert.equal(await page.evaluate(() => window.__patsBar.game.elapsed), elapsed);
     for (const [width, height] of [[1440, 900], [900, 650]]) {
       await page.setViewportSize({ width, height });
-      await page.waitForFunction(() => document.querySelectorAll('[data-equipment]:disabled').length === 0);
+      await page.waitForFunction(() => document.querySelectorAll('[data-boss-reward]').length === 4 && document.querySelectorAll('[data-boss-reward]:disabled').length === 0);
       await page.locator('.upgrade-modal').evaluate(el => el.scrollTop = 0);
       await page.screenshot({ path: `artifacts/equipment-${width}.png` });
-      for (const card of await page.locator('[data-equipment]').all()) {
+      for (const card of await page.locator('[data-boss-reward]').all()) {
         await card.scrollIntoViewIfNeeded(); assert.equal(await card.isVisible(), true);
       }
       assert.ok(await page.locator('.upgrade-modal').evaluate(el => {
@@ -52,35 +52,59 @@ fs.mkdirSync('artifacts', { recursive: true });
       await page.locator('.power-inventory').scrollIntoViewIfNeeded();
       await page.screenshot({ path: `artifacts/equipment-inventory-${width}.png` });
     }
-    await page.locator('[data-equipment=ricochet]').click();
+    await page.locator('[data-boss-reward=ricochet]').click();
     await page.waitForFunction(() => window.__patsBar.game.mode === 'playing');
     assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.weapon, g.armor, g.round]; }), ['ricochet', 'none', 4]);
     await page.waitForSelector('.power-inventory', { state: 'detached' });
+
+    // A single pool can show a buff, weapon, and armor together; one click finishes the reward.
+    await page.evaluate(() => {
+      const g = window.__patsBar.game;
+      g.superBuffs.clear(); g.round = 6; g.encounter = 'boss'; g.enemies = []; g.bullets = []; g.nextSpawn = 999;
+      g.spawn('boss', { x: 10, z: -5 }).hp = 0;
+      const draws = [.1, .55, .85]; g.random = () => draws.shift() ?? .5;
+    });
+    await page.waitForSelector('[data-boss-reward=explosive]');
+    await page.waitForFunction(() => document.querySelector('[data-boss-reward=explosive]')?.disabled === false);
+    assert.deepEqual(await page.evaluate(() => window.__patsBar.game.bossChoices), ['explosive', 'shotgun', 'glass']);
+    assert.equal(await page.locator('.gear-comparison').count(), 2);
+    for (const [width, height] of [[1440, 900], [900, 650]]) {
+      await page.setViewportSize({ width, height });
+      await page.locator('.upgrade-modal').evaluate(el => el.scrollTop = 0);
+      await page.screenshot({ path: `artifacts/mixed-boss-rewards-${width}.png` });
+      assert.ok(await page.locator('.upgrade-modal').evaluate(el => {
+        const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && el.scrollWidth <= el.clientWidth + 1;
+      }));
+    }
+    await page.locator('[data-boss-reward=explosive]').click();
+    await page.waitForFunction(() => window.__patsBar.game.mode === 'playing');
+    assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.round, [...g.superBuffs], g.weapon, g.armor, g.bossChoices]; }), [7, ['explosive'], 'ricochet', 'none', []]);
+    await page.waitForSelector('[data-boss-reward]', { state: 'detached' });
 
     // Multiple banked levels must require separate, protected training selections.
     await page.keyboard.down('Enter');
     await page.evaluate(() => {
       const g = window.__patsBar.game;
       Object.assign(g.upgrades, { damage: 5, rate: 5, count: 3, pierce: 3, speed: 4, health: 4, magnet: 4 });
-      g.player.maxHp = 200; g.player.hp = 20; g.xp = 32; g.checkLevel();
+      g.player.maxHp = 200; g.player.hp = 20; g.level = 29; g.xp = 236 + 244 + 252; g.checkLevel();
     });
     await page.waitForSelector('[data-training]'); await page.waitForTimeout(300);
     assert.equal(await page.locator('[data-training]:disabled').count(), 2);
     await page.keyboard.up('Enter');
-    await page.waitForFunction(() => document.querySelectorAll('[data-training]:disabled').length === 0);
+    await page.waitForFunction(() => document.querySelectorAll('[data-training]').length === 2 && document.querySelectorAll('[data-training]:disabled').length === 0);
     assert.equal(await page.evaluate(() => window.__patsBar.game.training.power), 0);
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => window.__patsBar.game.mode === 'paused');
     await page.locator('[data-action=resume]').click();
-    await page.waitForFunction(() => document.querySelectorAll('[data-training]:disabled').length === 0);
+    await page.waitForFunction(() => document.querySelectorAll('[data-training]').length === 2 && document.querySelectorAll('[data-training]:disabled').length === 0);
     await page.locator('[data-training=power]').focus();
     await page.keyboard.down('Enter');
-    await page.waitForFunction(() => window.__patsBar.game.level === 3);
+    await page.waitForFunction(() => window.__patsBar.game.level === 32);
     await page.waitForTimeout(300);
     assert.equal(await page.locator('[data-training]:disabled').count(), 2, 'Held key cannot accept the next training level');
     assert.equal(await page.evaluate(() => window.__patsBar.game.training.power), 1);
     await page.keyboard.up('Enter');
-    await page.waitForFunction(() => document.querySelectorAll('[data-training]:disabled').length === 0);
+    await page.waitForFunction(() => document.querySelectorAll('[data-training]').length === 2 && document.querySelectorAll('[data-training]:disabled').length === 0);
     await page.locator('[data-training=endurance]').dispatchEvent('click');
     assert.equal(await page.evaluate(() => window.__patsBar.game.training.endurance), 0);
     for (const [width, height] of [[1440, 900], [900, 650]]) {
@@ -98,7 +122,7 @@ fs.mkdirSync('artifacts', { recursive: true });
     await page.locator('[data-training=endurance]').focus();
     await page.keyboard.press('Space');
     await page.waitForFunction(() => window.__patsBar.game.mode === 'playing');
-    assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.training, g.player.maxHp, g.player.hp]; }), [{ power: 1, endurance: 1 }, 215, 85]);
+    assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.training, g.player.maxHp, g.player.hp]; }), [{ power: 1, endurance: 1 }, 215, 110]);
     await page.waitForSelector('.power-inventory', { state: 'detached' });
 
     // Render every projectile at a frozen position to check geometry/color and reset behavior.
@@ -130,7 +154,7 @@ fs.mkdirSync('artifacts', { recursive: true });
       const g = window.__patsBar.game; g.player.invulnerable = 0; g.shieldCooldown = 12; g.damage(10000);
     });
     await page.locator('[data-action=start]').click();
-    assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.runMode, g.weapon, g.armor, g.training, g.equipmentChoices, g.player.maxHp]; }), ['endless', 'caps', 'none', { power: 0, endurance: 0 }, [], 100]);
+    assert.deepEqual(await page.evaluate(() => { const g = window.__patsBar.game; return [g.runMode, g.weapon, g.armor, g.training, g.bossChoices, g.player.maxHp]; }), ['endless', 'caps', 'none', { power: 0, endurance: 0 }, [], 100]);
     assert.deepEqual(errors, []);
     console.log('Equipment browser QA passed: choices/skip, held mouse/key protection, successive training, pause/blur, slot comparisons, inventory tooltips, 1440×900 and 900×650 layouts, projectile visuals and restart.');
   } finally { await browser.close(); }

@@ -10,11 +10,11 @@ for (const runMode of ['normal', 'endless'] as const) for (const seed of [4, 15,
   const g = new Game(random); g.start(runMode); let tick = 0, bossStart = 0;
   while (!['victory', 'defeat'].includes(g.mode) && tick < 60 * (runMode === 'normal' ? 420 : 7200)) {
     if (g.mode === 'upgrade') { const order = ['count', 'damage', 'rate', 'health', 'speed', 'pierce', 'magnet']; g.choose([...g.choices].sort((a, b) => order.indexOf(a) - order.indexOf(b))[0]); }
-    if (g.mode === 'super') g.chooseSuper(g.superChoices[0]);
-    if (g.mode === 'equipment') {
-      const weapon = g.equipmentChoices.find(id => id === preferredWeapon);
-      const armor = g.equipmentChoices.find(id => id === 'vest') ?? (g.armor === 'none' ? g.equipmentChoices.find(id => EQUIPMENT.find(e => e.id === id)!.slot === 'armor') : undefined);
-      g.chooseEquipment(weapon ?? armor ?? null);
+    if (g.mode === 'bossReward') {
+      const weapon = g.bossChoices.find(id => id === preferredWeapon);
+      const buff = g.bossChoices.find(id => !EQUIPMENT.some(e => e.id === id));
+      const armor = g.bossChoices.find(id => id === 'vest') ?? (g.armor === 'none' ? g.bossChoices.find(id => EQUIPMENT.find(e => e.id === id)?.slot === 'armor') : undefined);
+      g.chooseBossReward(weapon ?? buff ?? armor ?? null);
     }
     if (g.mode === 'training') g.chooseTraining(g.training.power <= g.training.endurance ? 'power' : 'endurance');
     const p = g.player; const target = [...g.enemies].sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];

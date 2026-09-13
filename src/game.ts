@@ -1,5 +1,5 @@
 import { ARENA, bossDifficulty, bossReinforcementInterval, clamp, ENEMIES, HEALING, SUPER_BUFFS, type SuperBuffId, type EnemyKind, type Mode, type RunMode, type Encounter, UPGRADES, type UpgradeId, waveDifficulty, WEAPON, xpRequired } from './config';
-import { EQUIPMENT, isSelectionMode, WEAPON_PROFILES, type ArmorId, type WeaponId, type EquipmentId, type TrainingId, type SelectionMode } from './config';
+import { EQUIPMENT, isSelectionMode, isTrainingLevel, WEAPON_PROFILES, type ArmorId, type WeaponId, type BossRewardId, type TrainingId, type SelectionMode } from './config';
 export interface Vec { x: number; z: number }
 export interface Enemy extends Vec { id: number; kind: EnemyKind; hp: number; maxHp: number; radius: number; speed: number; damage: number; projectileDamage: number; recovery: number; cooldown: number; flash: number; phase: 'rest' | 'warning' | 'charge'; phaseTime: number; target: Vec; attack: number }
 export interface Bullet extends Vec { id: number; vx: number; vz: number; life: number; hostile: boolean; weapon: WeaponId; damage: number; remaining: number; hit: Set<number> }
@@ -10,12 +10,12 @@ export interface Input { x: number; z: number; aim: Vec; fire: boolean; dodge: b
 export class Game {
   mode: Mode = 'title'; resumeMode: 'playing' | SelectionMode = 'playing';
   weapon: WeaponId = 'caps'; armor: ArmorId = 'none'; armorHp = 0;
-  equipmentChoices: EquipmentId[] = []; training: Record<TrainingId, number> = { power: 0, endurance: 0 };
+  bossChoices: BossRewardId[] = []; training: Record<TrainingId, number> = { power: 0, endurance: 0 };
   get permanentMaxHp() { return this.player.maxHp - this.armorHp; }
   get activeWeapon() { return this.runMode === 'endless' ? this.weapon : 'caps'; }
-  superBuffs = new Set<SuperBuffId>(); superChoices: SuperBuffId[] = [];
+  superBuffs = new Set<SuperBuffId>();
   shieldCooldown = 0; trails: Trail[] = []; orbitHits = new Map<number, number>(); trailHits = new Map<number, number>();
-  private pendingEncounter = false; private pendingSuper = false; private pendingEquipment = false;
+  private pendingEncounter = false; private pendingBossReward = false; private pendingTraining = false;
   get weaponDamage() { return WEAPON.damage * (1 + this.upgrades.damage * .25) * (this.runMode === 'endless' ? 1 + .05 * this.training.power : 1); }
   get orbitPosition() { return { x: this.player.x + Math.cos(this.elapsed * Math.PI) * 1.6, z: this.player.z + Math.sin(this.elapsed * Math.PI) * 1.6 }; }
   runMode: RunMode = 'normal'; encounter: Encounter = 'wave'; round = 1; roundsCompleted = 0; bossesDefeated = 0;
@@ -34,45 +34,35 @@ export class Game {
   menu() { const selected = this.runMode; this.start(selected); this.mode = 'title'; }
   private advanceEncounter() {
     this.pendingEncounter = true;
-    this.pendingSuper = this.encounter === 'boss' && this.runMode === 'endless';
-    this.pendingEquipment = this.pendingSuper;
-    this.heal(this.pendingSuper ? HEALING.boss : HEALING.round);
+    this.pendingBossReward = this.encounter === 'boss' && this.runMode === 'endless';
+    this.heal(this.pendingBossReward ? HEALING.boss : HEALING.round);
     this.xp += this.pickups.reduce((sum, o) => sum + o.value, 0); this.pickups = [];
     this.bullets = this.bullets.filter(b => !b.hostile);
     this.continueRewards();
   }
   private continueRewards() {
+    if (this.pendingTraining) { this.pendingTraining = false; this.mode = 'training'; return; }
     while (this.xp >= xpRequired(this.level)) { this.checkLevel(); if (isSelectionMode(this.mode)) return; }
-    if (this.pendingSuper) {
-      this.pendingSuper = false;
-      const available = SUPER_BUFFS.map(b => b.id).filter(id => !this.superBuffs.has(id));
-      this.superChoices = [];
-      while (available.length && this.superChoices.length < 3) this.superChoices.push(available.splice(Math.floor(this.random() * available.length), 1)[0]);
-      if (this.superChoices.length) { this.mode = 'super'; return; }
-    }
-    if (this.pendingEquipment) {
-      this.pendingEquipment = false;
-      const available = EQUIPMENT.filter(e => e.id !== this.weapon && e.id !== this.armor);
-      const take = (slot?: 'weapon' | 'armor') => {
-        const pool = available.filter(e => !slot || e.slot === slot);
-        const item = pool[Math.floor(this.random() * pool.length)];
-        available.splice(available.indexOf(item), 1); this.equipmentChoices.push(item.id);
-      };
-      this.equipmentChoices = []; take('weapon'); take('armor'); take();
-      this.mode = 'equipment'; return;
+    if (this.pendingBossReward) {
+      this.pendingBossReward = false;
+      const available: BossRewardId[] = [
+        ...SUPER_BUFFS.filter(b => !this.superBuffs.has(b.id)).map(b => b.id),
+        ...EQUIPMENT.filter(e => e.id !== this.weapon && e.id !== this.armor).map(e => e.id),
+      ];
+      this.bossChoices = [];
+      while (available.length && this.bossChoices.length < 3) this.bossChoices.push(available.splice(Math.floor(this.random() * available.length), 1)[0]);
+      this.mode = 'bossReward'; return;
     }
     if (this.pendingEncounter) { this.pendingEncounter = false; this.beginNextEncounter(); }
   }
-  chooseSuper(id: SuperBuffId) {
-    if (this.mode !== 'super' || !this.superChoices.includes(id) || this.superBuffs.has(id)) return;
-    this.superBuffs.add(id); this.superChoices = []; this.mode = 'playing'; this.continueRewards();
-  }
-  chooseEquipment(id: EquipmentId | null) {
-    if (this.mode !== 'equipment' || this.runMode !== 'endless' || (id !== null && !this.equipmentChoices.includes(id))) return;
+  chooseBossReward(id: BossRewardId | null) {
+    if (this.mode !== 'bossReward' || this.runMode !== 'endless' || (id !== null && !this.bossChoices.includes(id))) return;
     if (id !== null) {
-      const item = EQUIPMENT.find(e => e.id === id)!;
-      if (item.slot === 'weapon') this.weapon = item.id;
-      else {
+      const buff = SUPER_BUFFS.find(b => b.id === id);
+      const item = EQUIPMENT.find(e => e.id === id);
+      if (buff) { if (this.superBuffs.has(buff.id)) return; this.superBuffs.add(buff.id); }
+      else if (item?.slot === 'weapon') this.weapon = item.id;
+      else if (item?.slot === 'armor') {
         const permanentHp = this.permanentMaxHp;
         const addedHp = item.id === 'glass' ? 75 : 0;
         // Armor capacity is filled directly, after the outgoing armor is removed.
@@ -81,7 +71,7 @@ export class Game {
         this.player.maxHp = permanentHp + addedHp; this.player.hp = currentHp + addedHp;
       }
     }
-    this.equipmentChoices = []; this.mode = 'playing'; this.continueRewards();
+    this.bossChoices = []; this.mode = 'playing'; this.continueRewards();
   }
   chooseTraining(id: TrainingId) {
     if (this.mode !== 'training' || this.runMode !== 'endless' || (id !== 'power' && id !== 'endurance')) return;
@@ -123,8 +113,9 @@ export class Game {
     const available = UPGRADES.filter(u => this.upgrades[u.id] < u.cap).map(u => u.id);
     this.choices = [];
     while (available.length && this.choices.length < 3) this.choices.push(available.splice(Math.floor(this.random() * available.length), 1)[0]);
-    if (this.choices.length) this.mode = 'upgrade';
-    else { this.heal(25); if (this.runMode === 'endless') this.mode = 'training'; }
+    const trainingDue = this.runMode === 'endless' && isTrainingLevel(this.level);
+    if (this.choices.length) { this.mode = 'upgrade'; this.pendingTraining = trainingDue; }
+    else { this.heal(25); if (trainingDue) this.mode = 'training'; }
   }
   spawn(kind: EnemyKind, pos?: Vec) {
     const side = Math.floor(this.random() * 4);

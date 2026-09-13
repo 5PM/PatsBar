@@ -7,9 +7,11 @@
 .title-card>p { margin-bottom:18px; }
 .menu-button { display:block; margin:22px auto 0; padding:10px; background:none; color:#d7bc7f; border:0; font-size:10px; letter-spacing:1.5px; }
 .menu-button:hover { color:#fff0ca; }
-.overlay-super:before,.overlay-equipment:before,.overlay-training:before { content:''; position:absolute; inset:0; background:#061a14aa; backdrop-filter:blur(6px); }
-.super-modal { border-color:#e5c681; }
-.super-modal .upgrade-grid { grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+.overlay-bossReward:before,.overlay-training:before { content:''; position:absolute; inset:0; background:#061a14aa; backdrop-filter:blur(6px); }
+.equipment-modal .upgrade-card { display:flex; flex-direction:column; align-items:stretch; }
+.equipment-modal .upgrade-icon { flex-shrink:0; }
+.equipment-modal .choose { margin-top:auto; }
+.equipment-modal .gear-comparison { margin-bottom:14px; }
 .training-modal .upgrade-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .gear-comparison { display:flex; flex-direction:column; gap:6px; border-top:1px solid #a5b78f44; padding-top:12px; margin-top:14px; font-size:11px; line-height:1.5; color:#c1cdb9; }
 .gear-comparison b { color:#e5c681; }

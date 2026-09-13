@@ -1,29 +1,36 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, type Input } from './game';
-import { isSelectionMode, bossDifficulty, bossReinforcementInterval, ENEMIES, UPGRADES, waveDifficulty, xpRequired } from './config';
+import { isSelectionMode, bossDifficulty, bossReinforcementInterval, ENEMIES, SUPER_BUFFS, UPGRADES, waveDifficulty, xpRequired } from './config';
 const idle: Input = { x: 0, z: 0, aim: { x: 0, z: -5 }, fire: false, dodge: false };
 function bossReward(g: Game) { g.round = 3; g.encounter = 'boss'; g.enemies = []; g.spawn('boss', { x: 10, z: -5 }).hp = 0; g.step(.01, idle); }
 test('boss rewards follow banked XP upgrades, freeze gameplay, and apply only once', () => {
-  const g = new Game(() => .5); g.start('endless'); g.player.hp = 10;
+  const g = new Game(() => 0); g.start('endless'); g.player.hp = 10;
   g.pickups.push({ id: 900, x: 10, z: 7, value: 12 }); bossReward(g);
   assert.equal(g.player.hp, 55); assert.equal(g.mode, 'upgrade'); assert.equal(g.round, 3);
   const elapsed = g.elapsed; g.step(2, idle); assert.equal(g.elapsed, elapsed); assert.equal(g.player.hp, 55);
-  g.choose(g.choices.find(id => id !== 'health')!); assert.equal(g.mode, 'super');
-  assert.equal(g.superChoices.length, 3); assert.equal(new Set(g.superChoices).size, 3);
-  const choice = g.superChoices[0]; g.pause(); g.step(10, idle); g.pause(); assert.equal(g.mode, 'super');
-  g.chooseSuper(choice); assert.equal(g.mode, 'equipment'); g.chooseEquipment(null); assert.equal(g.round, 4); assert.equal(g.waveTime, 0); assert.ok(g.superBuffs.has(choice));
-  g.chooseSuper(choice); assert.equal(g.superBuffs.size, 1); assert.equal(g.player.hp, 55);
+  g.choose(g.choices.find(id => id !== 'health')!); assert.equal(g.mode, 'bossReward');
+  assert.equal(g.bossChoices.length, 3); assert.equal(new Set(g.bossChoices).size, 3);
+  const choice = g.bossChoices[0]; g.pause(); g.step(10, idle); g.pause(); assert.equal(g.mode, 'bossReward');
+  g.chooseBossReward(choice); assert.equal(g.mode, 'playing'); assert.equal(g.round, 4); assert.equal(g.waveTime, 0); assert.equal(g.superBuffs.size, 1);
+  g.chooseBossReward(choice); assert.equal(g.superBuffs.size, 1); assert.equal(g.player.hp, 55);
 });
-test('all four super buffs are unique and later bosses skip the super choice; restart clears everything', () => {
-  const g = new Game(() => .1); g.start('endless');
-  for (let i = 0; i < 4; i++) { bossReward(g); assert.equal(g.superChoices.length, Math.min(3, 4 - i)); assert.ok(g.superChoices.every(id => !g.superBuffs.has(id))); g.chooseSuper(g.superChoices[0]); g.chooseEquipment(null); }
-  g.player.hp = 10; bossReward(g); assert.equal(g.player.hp, 55); assert.equal(g.mode, 'equipment'); g.chooseEquipment(null); assert.equal(g.superChoices.length, 0);
+test('unowned super buffs share the pool; collecting all four leaves equipment rewards', () => {
+  const g = new Game(() => 0); g.start('endless');
+  for (let i = 0; i < 4; i++) {
+    bossReward(g); assert.equal(g.bossChoices.length, 3);
+    assert.ok(SUPER_BUFFS.filter(b => g.superBuffs.has(b.id)).every(b => !g.bossChoices.includes(b.id)));
+    g.chooseBossReward(g.bossChoices[0]); assert.equal(g.mode, 'playing');
+  }
+  assert.equal(g.superBuffs.size, 4);
+  g.player.hp = 10; bossReward(g); assert.equal(g.player.hp, 55); assert.equal(g.mode, 'bossReward');
+  assert.ok(g.bossChoices.every(id => !SUPER_BUFFS.some(b => b.id === id)));
+  g.chooseBossReward(null); assert.equal(g.bossChoices.length, 0);
   g.shieldCooldown = 5; g.menu(); assert.equal(g.superBuffs.size, 0); assert.equal(g.shieldCooldown, 0); assert.equal(g.trails.length, 0);
 });
 test('regular healing is 30 in both modes, and dead players get no rewards', () => {
   for (const mode of ['normal','endless'] as const) { const g = new Game(); g.start(mode); g.player.hp = 25; g.waveTime = 60; g.step(.01,idle); assert.equal(g.player.hp,55); }
-  const g = new Game(); g.start('endless'); g.player.hp = 1; g.waveTime = 60; g.spawn('olive',g.player); g.step(.01,idle); assert.equal(g.mode,'defeat'); assert.equal(g.player.hp,0); assert.equal(g.superChoices.length,0);
+  const g = new Game(); g.start('endless'); g.player.hp = 1; g.waveTime = 60; g.spawn('olive',g.player); g.step(.01,idle); assert.equal(g.mode,'defeat'); assert.equal(g.player.hp,0); assert.equal(g.bossChoices.length,0);
 });
 test('explosions occur once per piercing cap and do not chain or double-hit their direct target', () => {
   const g = new Game(); g.start(); g.superBuffs.add('explosive'); g.upgrades.pierce = 2;
@@ -122,7 +129,7 @@ test('Endless cycles through bosses after 3, 6, 9, and 12 without victory', () =
         g.nextSpawn = 0; g.step(.01, idle); assert.equal(g.enemies.length, 1);
         g.enemies[0].hp = 0; g.step(.01, idle);
       }
-      while (isSelectionMode(g.mode)) { if (g.mode === 'upgrade') g.choose(g.choices[0]); else if (g.mode === 'super') g.chooseSuper(g.superChoices[0]); else if (g.mode === 'training') g.chooseTraining('power'); else g.chooseEquipment(null); }
+      while (isSelectionMode(g.mode)) { if (g.mode === 'upgrade') g.choose(g.choices[0]); else if (g.mode === 'training') g.chooseTraining('power'); else g.chooseBossReward(null); }
       assert.equal(g.encounter, 'wave'); assert.equal(g.round, round + 1);
     }
     while (g.mode === 'upgrade') g.choose(g.choices[0]);
@@ -171,10 +178,10 @@ test('transitions bank XP and heal once, retain upgrades, and wait during upgrad
   const g = new Game(); g.start('endless'); g.round = 3; g.waveTime = 60; g.player.hp = 50; g.upgrades.damage = 2;
   g.pickups.push({ id: 100, x: 10, z: 7, value: 3 }); g.shoot({ x: 10, z: 7 }, 0, true);
   g.step(.01, idle); assert.equal(g.player.hp, 80); assert.equal(g.xp, 3); assert.equal(g.pickups.length, 0); assert.equal(g.bullets.length, 0);
-  g.enemies[0].hp = 0; g.step(.01, idle); g.chooseSuper(g.superChoices[0]); g.chooseEquipment(null); assert.equal(g.player.hp, 100); assert.equal(g.round, 4); assert.equal(g.upgrades.damage, 2);
+  g.enemies[0].hp = 0; g.step(.01, idle); g.chooseBossReward(null); assert.equal(g.player.hp, 100); assert.equal(g.round, 4); assert.equal(g.upgrades.damage, 2);
   g.step(.01, idle); assert.equal(g.player.hp, 100);
   for (const u of UPGRADES) g.upgrades[u.id] = u.cap;
-  g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.player.hp, 100); assert.equal(g.mode, 'training'); g.chooseTraining('power');
+  g.level = 29; g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.player.hp, 100); assert.equal(g.mode, 'training'); g.chooseTraining('power');
 });
 
 test('Endless death takes precedence over a cleared encounter; menu and mode changes reset run state', () => {
