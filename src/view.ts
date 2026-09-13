@@ -1,5 +1,7 @@
 import * as T from 'three';
 import { Game, type Vec } from './game';
+import { SKINS, type SkinId } from './skins';
+import { characterMaterial } from './character-material';
 
 export class View {
   renderer: T.WebGLRenderer; scene = new T.Scene(); camera = new T.OrthographicCamera();
@@ -7,6 +9,7 @@ export class View {
   hero!: T.Sprite; heroShadow!: T.Mesh; ring!: T.Mesh; aimRing!: T.Mesh; warning!: T.Mesh; warningLine!: T.Mesh;
   textures: T.Texture[] = []; geometries = new Map<string, T.BufferGeometry>(); materials = new Map<string, T.MeshStandardMaterial>();
   spriteMaterials: T.SpriteMaterial[] = []; ready: Promise<void>;
+  skinMaterials = new Map<SkinId, T.SpriteMaterial>(); skinPreviews = new Map<SkinId, string>(); activeSkin: SkinId = 'classic';
   private hostileShotMaterial = new T.MeshBasicMaterial({ color: '#ff825b' });
   private pickAxis = new T.Vector3(0, 1, 0); private pickDirection = new T.Vector3();
   constructor(canvas: HTMLCanvasElement) {
@@ -89,19 +92,28 @@ export class View {
   }
   async loadSprites() {
     const loader = new T.TextureLoader();
-    const textures = await Promise.all(['/assets/hero-key.png', '/assets/boss-key.png'].map(p => loader.loadAsync(p)));
-    this.spriteMaterials = textures.map(t => {
-      t.colorSpace = T.SRGBColorSpace; this.textures.push(t);
-      const material = new T.SpriteMaterial({ map: t, transparent: true, depthWrite: false });
-      material.onBeforeCompile = shader => { shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `#include <map_fragment>
-        float dominance = sampledDiffuseColor.g - max(sampledDiffuseColor.r, sampledDiffuseColor.b);
-        float keyAlpha = 1.0 - smoothstep(0.05, 0.24, dominance);
-        diffuseColor.a *= keyAlpha;
-        if (diffuseColor.a < 0.06) discard;
-        diffuseColor.g = min(diffuseColor.g, max(diffuseColor.r, diffuseColor.b) + 0.025);`); };
-      return material;
-    });
-    this.hero = new T.Sprite(this.spriteMaterials[0].clone()); this.hero.material.onBeforeCompile = this.spriteMaterials[0].onBeforeCompile; this.hero.center.set(.5, .035); this.hero.scale.set(1.8, 2.7, 1); this.world.add(this.hero);
+    const paths = [...new Set([...SKINS.map(skin => skin.asset), '/assets/boss-key.png'])];
+    const loaded = await Promise.all(paths.map(path => loader.loadAsync(path)));
+    const textures = new Map(paths.map((path, index) => {
+      const texture = loaded[index]; texture.colorSpace = T.SRGBColorSpace; this.textures.push(texture); return [path, texture] as const;
+    }));
+    for (const skin of SKINS) this.skinMaterials.set(skin.id, characterMaterial(textures.get(skin.asset)!, skin.hoodieColor));
+    this.spriteMaterials = [this.skinMaterials.get('classic')!, characterMaterial(textures.get('/assets/boss-key.png')!)];
+    this.hero = new T.Sprite(this.skinMaterials.get('classic')); this.hero.center.set(.5, .035); this.hero.scale.set(1.8, 2.7, 1); this.world.add(this.hero);
+    this.buildSkinPreviews();
+  }
+  private buildSkinPreviews() {
+    const renderer = new T.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(192, 288); renderer.outputColorSpace = T.SRGBColorSpace;
+    renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.2;
+    const scene = new T.Scene(), camera = new T.OrthographicCamera(-1, 1, 1.5, -1.5, .1, 10);
+    camera.position.z = 3;
+    const sprite = new T.Sprite(); sprite.scale.set(2, 3, 1); scene.add(sprite);
+    for (const skin of SKINS) {
+      sprite.material = this.skinMaterials.get(skin.id)!;
+      renderer.render(scene, camera); this.skinPreviews.set(skin.id, renderer.domElement.toDataURL('image/png'));
+    }
+    renderer.dispose(); renderer.forceContextLoss();
   }
   createEnemy(kind: string) {
     const g = new T.Group(); g.add(this.shadow(kind === 'boss' ? 1.5 : .55));
@@ -125,12 +137,13 @@ export class View {
     Object.assign(this.camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH, near: .1, far: 120 }); this.camera.updateProjectionMatrix(); this.renderer.setSize(w, h);
   }
   aim(pointer: { x: number; y: number }): Vec { this.ray.setFromCamera(new T.Vector2(pointer.x, pointer.y), this.camera); const p = new T.Vector3(); this.ray.ray.intersectPlane(this.floor, p); return { x: p.x, z: p.z }; }
-  update(game: Game, aim: Vec, moving: boolean, time: number) {
+  update(game: Game, aim: Vec, moving: boolean, time: number, skin: SkinId = this.activeSkin) {
     if (!this.hero) return;
-    const title = game.mode === 'title'; const p = game.player;
+    const title = game.mode === 'title' || game.mode === 'shop'; const p = game.player;
+    this.activeSkin = skin; this.hero.material = this.skinMaterials.get(skin)!;
     this.hero.position.set(title ? 6 : p.x, .08 + (moving ? Math.abs(Math.sin(time * 13)) * .13 : Math.sin(time * 2) * .025), title ? 5 : p.z);
     this.hero.scale.set(title ? 5.8 : 1.8, title ? 8.7 : 2.7, 1);
-    this.hero.material.color.set(p.invulnerable > 0 && Math.sin(time * 40) > 0 ? '#ffbdab' : '#ffffff');
+    this.hero.material.color.set(!title && p.invulnerable > 0 && Math.sin(time * 40) > 0 ? '#ffbdab' : '#ffffff');
     this.heroShadow.position.set(this.hero.position.x, .026, this.hero.position.z); this.ring.position.set(this.hero.position.x, .028, this.hero.position.z);
     this.ring.rotation.z = time * .3; this.aimRing.position.set(aim.x, .035, aim.z); this.aimRing.visible = game.mode === 'playing';
     const live = new Set<number>(); this.warning.visible = false; this.warningLine.visible = false;

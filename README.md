@@ -4,7 +4,7 @@ A desktop-browser Three.js survival roguelike. Play a miniature photo-based hero
 
 Choose **Normal** for the original three-round run and final boss, or **Endless** for increasingly difficult 60-second rounds until death. Endless bosses appear after rounds 3, 6, 9, and every third round thereafter. The first two bosses fight alone; starting with the boss after round 9, regular enemies reinforce the fight. Kill the boss and clear surviving enemies to advance.
 
-Endless retains XP, upgrades, equipment, and training between encounters. Clearing a regular round restores 30 health; clearing an Endless boss encounter restores 45. Both bank leftover XP and cap healing at maximum health. After all regular upgrades are capped, level-ups restore 25 health; Endless also offers unlimited training. Results show rounds cleared, bosses defeated, survival time, kills, and level. Another Round restarts the same mode; Change Mode / Main Menu returns to mode selection. Nothing is saved between runs.
+Endless retains XP, upgrades, equipment, and training between encounters. Clearing a regular round restores 30 health; clearing an Endless boss encounter restores 45. Both bank leftover XP and cap healing at maximum health. After all regular upgrades are capped, level-ups restore 25 health; Endless also offers unlimited training. Results show rounds cleared, bosses defeated, survival time, kills, and level. Another Round restarts the same mode; Change Mode / Main Menu returns to mode selection. Combat progression resets each run; your token wallet and cosmetic skins are saved in this browser.
 
 ## Run locally
 
@@ -65,7 +65,28 @@ For seeds 4, 15, and 42, the pre-equipment version (`62d2473`) died in Endless r
 
 The world uses procedural geometry and a canvas wood texture. Character images were generated using the built-in imagegen tool from the supplied references. The generator returned RGB images, so green-screen versions are chroma-keyed by the sprite shader at runtime; the PNG source files themselves do not contain alpha. Faces and clothing are approximations. See `ASSETS.md` for the generation prompts.
 
-No backend, account, mobile touch controls, multiplayer, or persistent progression. The CSS uses an optional Google Fonts request with local serif/sans-serif fallbacks. All gameplay and character assets are local. Production output is the static `dist/` directory.
+No backend, account, mobile touch controls, multiplayer, or saved combat progression. The CSS uses an optional Google Fonts request with local serif/sans-serif fallbacks. All gameplay and character assets are local. Production output is the static `dist/` directory.
+
+## Bar Tokens and the skin shop
+
+Every boss killed in **Normal or Endless** awards exactly **1 Bar Token** immediately. You keep it if reinforcements later defeat you, including a simultaneous boss/player death. Regular enemies, cleared rounds, XP, and upgrades never award currency. Tokens carry across runs and are spent only on cosmetic skins.
+
+Open **Skin Shop** from the title, victory, or defeat screen. Each skin has a full-body preview. Buying deducts its price once, permanently unlocks it for this browser, and equips it. You can freely equip any owned skin, including the original red **Classic Owen**. Back or Escape returns to the screen you came from; the shop does not run combat or interrupt reward choices.
+
+| Skin | Cost |
+| --- | --- |
+| Classic Owen (original red hoodie) | Free, already owned |
+| Blue Hoodie | 30 tokens |
+| Purple Hoodie | 30 tokens |
+| Black Hoodie | 30 tokens |
+| Gold Hoodie | 30 tokens |
+| T-Shirt Owen | 50 tokens |
+
+Skins change only the player sprite. Damage, health, movement, collision size, weapons, armor, and abilities stay the same. Hoodie variants recolor fabric in the existing sprite shader while preserving the face and silhouette. T-Shirt Owen uses a new photo-derived sprite with the same in-game scale.
+
+The wallet, owned skins, and equipped skin are stored under `pats-bar.profile.v1` in localStorage, separate from run state. They survive restarts and page reloads on the same browser, device, and site address. Clearing site data removes them; local development and the deployed site have separate saves. There are no accounts or cloud saves. If browser storage is unavailable, play and purchases continue in memory with a notice in the shop. No previous boss kills are credited retroactively.
+
+`src/profile.ts` handles profile validation and purchases; `src/skins.ts` is the typed skin catalog. `src/character-material.ts` shares the transparency/recolor shader between gameplay and the shop's cached previews. `src/profile.test.ts` covers payouts, saving, pricing, invalid data, and reset behavior. The skin browser suite checks purchases, reloads, transparent previews, unchanged face pixels, both viewport sizes, and T-Shirt Owen movement/fire/dodge.
 
 ## Endless super buffs
 

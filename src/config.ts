@@ -1,6 +1,6 @@
 export type EnemyKind = 'olive' | 'bottle' | 'boss';
 export type SelectionMode = 'upgrade' | 'super' | 'equipment' | 'training';
-export type Mode = 'title' | 'playing' | SelectionMode | 'paused' | 'victory' | 'defeat';
+export type Mode = 'title' | 'shop' | 'playing' | SelectionMode | 'paused' | 'victory' | 'defeat';
 export const isSelectionMode = (mode: Mode): mode is SelectionMode => ['upgrade', 'super', 'equipment', 'training'].includes(mode);
 export type WeaponId = 'caps' | 'ricochet' | 'picks' | 'shotgun';
 export type ArmorId = 'none' | 'vest' | 'glass' | 'apron';

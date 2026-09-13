@@ -26,9 +26,10 @@ export class Game {
   enemies: Enemy[] = []; bullets: Bullet[] = []; pickups: Pickup[] = []; effects: Effect[] = [];
   upgrades: Record<UpgradeId, number> = { damage: 0, rate: 0, count: 0, pierce: 0, speed: 0, health: 0, magnet: 0 };
   choices: UpgradeId[] = []; waveTime = 0; elapsed = 0; level = 1; xp = 0; kills = 0; shots = 0; nextSpawn = .8; fireTime = 0; sequence = 0; banner = ''; bannerTime = 0;
-  constructor(public random: () => number = Math.random, public onHurt: () => void = () => {}) {}
+  tokenNoticeTime = 0;
+  constructor(public random: () => number = Math.random, public onHurt: () => void = () => {}, public onBossKilled: () => void = () => {}) {}
   start(runMode: RunMode = 'normal') {
-    const fresh = new Game(this.random, this.onHurt); Object.assign(this, fresh); this.runMode = runMode; this.mode = 'playing'; this.announce('ROUND 01 · A QUIET NIGHT');
+    const fresh = new Game(this.random, this.onHurt, this.onBossKilled); Object.assign(this, fresh); this.runMode = runMode; this.mode = 'playing'; this.announce('ROUND 01 · A QUIET NIGHT');
   }
   menu() { const selected = this.runMode; this.start(selected); this.mode = 'title'; }
   private advanceEncounter() {
@@ -158,6 +159,7 @@ export class Game {
   step(dt: number, input: Input) {
     if (this.mode !== 'playing') return;
     this.elapsed += dt; this.bannerTime -= dt; this.waveTime += dt;
+    this.tokenNoticeTime = Math.max(0, this.tokenNoticeTime - dt);
     this.shieldCooldown = Math.max(0, this.shieldCooldown - dt);
     this.trails.forEach(t => t.life -= dt); this.trails = this.trails.filter(t => t.life > 0);
     const p = this.player; p.invulnerable = Math.max(0, p.invulnerable - dt); p.dodge = Math.max(0, p.dodge - dt); p.dash = Math.max(0, p.dash - dt);
@@ -248,6 +250,7 @@ export class Game {
       this.kills++; this.effect(e, '#94d9a4');
       if (e.kind === 'boss') {
         this.bossesDefeated++; this.bossCleared = true;
+        this.tokenNoticeTime = 3; this.onBossKilled();
         if (this.mode === 'playing' && this.runMode === 'normal') this.mode = 'victory';
       }
       else {

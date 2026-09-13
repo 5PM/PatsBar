@@ -1,19 +1,23 @@
 import './style.css';
 import './modes.css';
+import './shop.css';
 import { isSelectionMode } from './config';
 import { Game } from './game';
 import { Controls } from './input';
 import { View } from './view';
 import { UI } from './ui';
 import { GameAudio } from './audio';
+import { createBrowserProfile, PROFILE_KEY } from './profile';
 
 const audio = new GameAudio();
-const game = new Game(Math.random, () => audio.hurt());
+const profile = createBrowserProfile();
+const game = new Game(Math.random, () => audio.hurt(), () => profile.awardBossToken());
 const canvas = document.querySelector<HTMLCanvasElement>('#game')!;
 let view: View;
 try { view = new View(canvas); } catch (error) { document.querySelector('#ui')!.innerHTML = '<div style="padding:15%;font:20px sans-serif">Pat’s Bar needs WebGL to open. Please enable hardware acceleration and reload.</div>'; throw error; }
-const controls = new Controls(canvas, () => game.pause());
-const ui = new UI(game, () => controls.clear());
+const controls = new Controls(canvas, () => game.mode === 'shop' ? ui.closeShop() : game.pause());
+const ui = new UI(game, () => controls.clear(), profile, view.skinPreviews);
+window.addEventListener('storage', event => { if (event.key === PROFILE_KEY || event.key === null) profile.refresh(); });
 const soundButton = document.createElement('button');
 soundButton.className = 'icon-button sound-button'; soundButton.textContent = '♪';
 soundButton.setAttribute('aria-label', 'Mute sound'); soundButton.setAttribute('aria-pressed', 'false');
@@ -36,9 +40,9 @@ function frame(now: number) {
     accumulated += delta;
     while (accumulated >= 1 / 60) { game.step(1 / 60, controls.read(aim)); accumulated -= 1 / 60; }
     visualTime += delta;
-  } else if (game.mode === 'title') visualTime += delta;
-  view.update(game, aim, controls.keys.size > 0 && game.mode === 'playing', visualTime); ui.update(); requestAnimationFrame(frame);
+  } else if (game.mode === 'title' || game.mode === 'shop') visualTime += delta;
+  view.update(game, aim, controls.keys.size > 0 && game.mode === 'playing', visualTime, profile.equippedSkin); ui.update(); requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
 // Read-only development snapshot for browser QA. Omitted from production builds.
-if (import.meta.env.DEV) Object.defineProperty(window, '__patsBar', { value: { game, view, controls, audio }, configurable: true });
+if (import.meta.env.DEV) Object.defineProperty(window, '__patsBar', { value: { game, view, controls, audio, profile }, configurable: true });

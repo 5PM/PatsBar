@@ -1,4 +1,6 @@
 import { Game } from './game';
+import { Profile } from './profile';
+import { SKINS, isSkinId, type SkinId } from './skins';
 import { EQUIPMENT, TRAINING, gearName, isSelectionMode, type EquipmentId, type TrainingId, SUPER_BUFFS, type SuperBuffId, UPGRADES, xpRequired, type UpgradeId, type RunMode } from './config';
 const time = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
 const choiceSelector = '[data-upgrade], [data-super], [data-equipment], [data-training]';
@@ -10,9 +12,12 @@ export class UI {
   private heldKeys = new Set<string>();
   private pressedCard: HTMLButtonElement | null = null;
   private lastLevel = 0;
-  constructor(public game: Game, public clear: () => void) {
+  private shopReturnMode: 'title' | 'victory' | 'defeat' = 'title';
+  private shopMessage = '';
+  private shopRevision = 0;
+  constructor(public game: Game, public clear: () => void, public profile = new Profile(), private skinPreviews = new Map<SkinId, string>()) {
     this.root = document.querySelector('#ui')!;
-    this.root.innerHTML = `<div class="vignette"></div><header><a class="brand" href="#" aria-label="Pat’s Bar">P<span>✦</span>B</a><div class="brand-label">PAT’S BAR<span>A COUNTERTOP ROGUELIKE</span></div><div class="header-right"><span class="live-dot"></span> LAST CALL <span class="edition">VOL. 01</span><button class="icon-button" id="pause" aria-label="Pause game">Ⅱ</button></div></header><section id="hud" class="hidden"><div class="health-panel"><div class="micro">STILL STANDING <span id="hp-text"></span></div><div class="meter"><i id="health-fill"></i></div><div class="xp-row"><span id="level"></span><div class="meter xp"><i id="xp-fill"></i></div></div></div><div class="wave-panel"><div class="micro" id="wave-label"></div><strong id="timer"></strong><span id="wave-name"></span></div><div class="kill-panel"><div class="micro">HOUSE COUNT</div><strong id="kills">0</strong><span>troublemakers served</span></div></section><section id="boss-hud" class="hidden"><div class="micro"><span id="boss-name">THE BIG GUY</span><span id="boss-phase">LAST CALL</span></div><div class="meter boss"><i id="boss-fill"></i></div></section><div id="banner"></div><div id="overlay"></div><footer><span class="footer-note">SMALL HERO. <b>BIG NIGHT.</b></span><div id="bottom-controls"><span><kbd>W A S D</kbd> MOVE</span><span><kbd>MOUSE</kbd> AIM & FIRE</span><span><kbd>SPACE</kbd> DODGE</span></div><span id="dodge-status">EST. TONIGHT</span></footer>`;
+    this.root.innerHTML = `<div class="vignette"></div><header><a class="brand" href="#" aria-label="Pat’s Bar">P<span>✦</span>B</a><div class="brand-label">PAT’S BAR<span>A COUNTERTOP ROGUELIKE</span></div><div class="header-right"><span class="live-dot"></span> LAST CALL <span class="edition">VOL. 01</span><span class="token-wallet" title="Bar Tokens · Earn 1 for every boss defeated">◎ <b id="token-balance">0</b><span>TOKENS</span></span><button class="icon-button" id="pause" aria-label="Pause game">Ⅱ</button></div></header><section id="hud" class="hidden"><div class="health-panel"><div class="micro">STILL STANDING <span id="hp-text"></span></div><div class="meter"><i id="health-fill"></i></div><div class="xp-row"><span id="level"></span><div class="meter xp"><i id="xp-fill"></i></div></div></div><div class="wave-panel"><div class="micro" id="wave-label"></div><strong id="timer"></strong><span id="wave-name"></span></div><div class="kill-panel"><div class="micro">HOUSE COUNT</div><strong id="kills">0</strong><span>troublemakers served</span></div></section><section id="boss-hud" class="hidden"><div class="micro"><span id="boss-name">THE BIG GUY</span><span id="boss-phase">LAST CALL</span></div><div class="meter boss"><i id="boss-fill"></i></div></section><div id="banner"></div><div id="token-notice" class="hidden" role="status">+1 BAR TOKEN · SAVED TO YOUR WALLET</div><div id="overlay"></div><footer><span class="footer-note">SMALL HERO. <b>BIG NIGHT.</b></span><div id="bottom-controls"><span><kbd>W A S D</kbd> MOVE</span><span><kbd>MOUSE</kbd> AIM & FIRE</span><span><kbd>SPACE</kbd> DODGE</span></div><span id="dodge-status">EST. TONIGHT</span></footer>`;
     this.overlay = document.querySelector('#overlay')!; this.health = document.querySelector('#health-fill')!; this.xp = document.querySelector('#xp-fill')!;
     document.querySelector('#pause')!.addEventListener('click', () => { clear(); game.pause(); });
     document.querySelector('.brand')!.addEventListener('click', e => e.preventDefault());
@@ -36,6 +41,14 @@ export class UI {
       const button = (e.target as HTMLElement).closest('button'); if (!button) return;
       clear();
       if (button.dataset.action === 'start' && this.ready) { game.start(game.runMode); this.lastMode = ''; }
+      if (button.dataset.action === 'shop') this.openShop();
+      if (button.dataset.action === 'close-shop') this.closeShop();
+      if (game.mode === 'shop' && isSkinId(button.dataset.buySkin)) {
+        this.shopMessage = this.profile.buy(button.dataset.buySkin) ? 'Purchased and equipped. Enjoy the new look.' : 'This skin is already owned or you need more tokens.'; this.shopRevision++;
+      }
+      if (game.mode === 'shop' && isSkinId(button.dataset.equipSkin)) {
+        this.profile.equip(button.dataset.equipSkin); this.shopMessage = 'Skin equipped for your next round.'; this.shopRevision++;
+      }
       if (button.dataset.action === 'resume') game.pause();
       if (button.dataset.action === 'menu') { game.menu(); this.lastMode = ''; }
       if (button.dataset.runMode && game.mode === 'title') { game.runMode = button.dataset.runMode as RunMode; this.lastMode = ''; }
@@ -48,6 +61,22 @@ export class UI {
       }
     });
   }
+  private openShop() {
+    if (!this.ready || !['title', 'victory', 'defeat'].includes(this.game.mode)) return;
+    this.shopReturnMode = this.game.mode as 'title' | 'victory' | 'defeat';
+    this.profile.refresh(); this.shopMessage = ''; this.game.mode = 'shop'; this.clear();
+  }
+  closeShop() {
+    if (this.game.mode !== 'shop') return;
+    this.game.mode = this.shopReturnMode; this.clear();
+  }
+  private shop() {
+    const p = this.profile;
+    return `<section class="modal shop-modal" aria-label="Skin shop"><div class="shop-heading"><div><div class="eyebrow">PAT’S BAR · THE WARDROBE</div><h2>A new kind of regular.</h2></div><button class="shop-back" data-action="close-shop">← Back</button></div><div class="shop-summary"><p>1 boss defeated = 1 Bar Token. All looks, no stat changes.</p><strong>◎ ${p.tokens} <span>BAR TOKENS</span></strong></div><div class="skin-grid">${SKINS.map(skin => {
+      const owned = p.owns(skin.id), equipped = p.equippedSkin === skin.id;
+      return `<article class="skin-card ${equipped ? 'skin-equipped' : ''}" data-skin="${skin.id}"><div class="skin-preview"><img src="${this.skinPreviews.get(skin.id) ?? ''}" alt="${skin.name} full-body preview"><span class="skin-price">${owned ? (equipped ? 'EQUIPPED' : 'OWNED') : skin.price + ' TOKENS'}</span></div><div class="skin-detail"><h3>${skin.name}</h3><p>${skin.description}</p>${owned ? `<button data-equip-skin="${skin.id}" ${equipped ? 'disabled' : ''}>${equipped ? 'Currently equipped' : 'Equip skin'}</button>` : `<button data-buy-skin="${skin.id}" ${p.tokens < skin.price ? 'disabled' : ''}>${p.tokens < skin.price ? 'Need ' + (skin.price - p.tokens) + ' more tokens' : 'Buy & equip · ' + skin.price + ' tokens'}</button>`}</div></article>`;
+    }).join('')}</div><p class="shop-feedback" role="status">${this.shopMessage}</p><p class="save-note">${p.persistent ? 'Saved in this browser on this device. Clearing site data removes your wallet and skins.' : 'Browser saving is unavailable. Your wallet and skins will last until this page closes.'}</p></section>`;
+  }
   private inventory() {
     const g = this.game;
     const regular = UPGRADES.filter(u => g.upgrades[u.id] > 0);
@@ -58,7 +87,11 @@ export class UI {
   }
   setReady() { this.ready = true; this.lastMode = ''; }
   update() {
-    const g = this.game; const title = g.mode === 'title'; const active = !title;
+    const g = this.game; const title = g.mode === 'title'; const active = !title && g.mode !== 'shop';
+    document.querySelector('#token-balance')!.textContent = String(this.profile.tokens);
+    const notice = document.querySelector('#token-notice')!;
+    notice.classList.toggle('hidden', g.tokenNoticeTime <= 0 || g.mode !== 'playing');
+    notice.textContent = this.profile.persistent ? '+1 BAR TOKEN · SAVED TO YOUR WALLET' : '+1 BAR TOKEN · IN YOUR SESSION WALLET';
     document.querySelector('#hud')!.classList.toggle('hidden', !active);
     document.querySelector('#pause')!.classList.toggle('hidden', !(g.mode === 'playing' || g.mode === 'paused' || isSelectionMode(g.mode)));
     this.health.style.width = `${g.player.hp / g.player.maxHp * 100}%`; this.health.classList.toggle('low', g.player.hp < 30);
@@ -73,7 +106,7 @@ export class UI {
     document.querySelector('.wave-panel')!.classList.toggle('hidden', !!boss);
     if (boss) { document.querySelector('#boss-name')!.textContent = g.runMode === 'endless' ? `BOSS ${g.bossNumber} · THE BIG GUY` : 'THE BIG GUY'; (document.querySelector('#boss-fill') as HTMLElement).style.width = `${boss.hp / boss.maxHp * 100}%`; document.querySelector('#boss-phase')!.textContent = boss.phase === 'warning' ? (boss.attack % 2 === 0 ? 'WATCH THE CHARGE' : 'INCOMING BURST') : boss.hp < boss.maxHp / 2 ? 'NO MORE MR. NICE GUY' : 'LAST CALL'; }
     const banner = document.querySelector('#banner')!; banner.textContent = g.bannerTime > 0 && g.mode === 'playing' ? g.banner : '';
-    const key = g.choices.join(',') + '/' + g.superChoices.join(',') + '/' + g.equipmentChoices.join(',');
+    const key = g.choices.join(',') + '/' + g.superChoices.join(',') + '/' + g.equipmentChoices.join(',') + '/' + this.profile.revision + '/' + this.shopRevision;
     const changed = this.lastMode !== g.mode || this.lastChoices !== key || this.lastLevel !== g.level;
     if (isSelectionMode(g.mode)) {
       if (changed) {
@@ -88,13 +121,14 @@ export class UI {
     this.lastLevel = g.level;
     this.lastMode = g.mode; this.lastChoices = key; this.overlay.className = g.mode === 'playing' ? 'hidden' : `overlay-${g.mode}`;
     document.body.dataset.mode = g.mode;
-    if (title) this.overlay.innerHTML = `<main class="title-card"><div class="eyebrow"><span></span> WELCOME TO YOUR LOCAL</div><h1>Pat’s Bar<span>Last call.<br>First fight.</span></h1><p>The drinks are oversized.<br>The locals are hostile.<br>And you’re picking up the tab.</p><div class="mode-picker" role="group" aria-label="Game mode">${(['normal', 'endless'] as const).map(mode => `<button data-run-mode="${mode}" aria-pressed="${g.runMode === mode}"><strong>${mode === 'normal' ? 'Normal' : 'Endless ∞'}</strong><span>${mode === 'normal' ? '3 rounds + the big guy' : 'Keep going until last call'}</span></button>`).join('')}</div><button class="primary" data-action="start" ${this.ready ? '' : 'disabled'}>${this.ready ? 'STEP UP TO THE BAR' : 'SETTING UP THE BAR…'} <span>↗</span></button><div class="run-note">${g.runMode === 'normal' ? '3 ROUNDS · 1 BIG BOSS · ONE SHOT AT LAST CALL' : 'BOSS EVERY 3 ROUNDS · REINFORCEMENTS FROM BOSS 3'}</div></main><aside class="scene-caption"><span class="tag">MEET YOUR REGULAR</span><h2>A little out<br>of his depth.</h2><p>Armed with bottle caps.<br>Running on pure instinct.</p><div class="caption-rule"></div><span class="micro">SURVIVE. LEVEL UP. SETTLE THE TAB.</span></aside><div class="title-index">01 <span>/ THE COUNTERTOP</span></div>`;
+    if (title) this.overlay.innerHTML = `<main class="title-card"><div class="eyebrow"><span></span> WELCOME TO YOUR LOCAL</div><h1>Pat’s Bar<span>Last call.<br>First fight.</span></h1><p>The drinks are oversized.<br>The locals are hostile.<br>And you’re picking up the tab.</p><div class="mode-picker" role="group" aria-label="Game mode">${(['normal', 'endless'] as const).map(mode => `<button data-run-mode="${mode}" aria-pressed="${g.runMode === mode}"><strong>${mode === 'normal' ? 'Normal' : 'Endless ∞'}</strong><span>${mode === 'normal' ? '3 rounds + the big guy' : 'Keep going until last call'}</span></button>`).join('')}</div><button class="primary" data-action="start" ${this.ready ? '' : 'disabled'}>${this.ready ? 'STEP UP TO THE BAR' : 'SETTING UP THE BAR…'} <span>↗</span></button><div class="run-note">${g.runMode === 'normal' ? '3 ROUNDS · 1 BIG BOSS · ONE SHOT AT LAST CALL' : 'BOSS EVERY 3 ROUNDS · REINFORCEMENTS FROM BOSS 3'}</div><button class="shop-link" data-action="shop" ${this.ready ? '' : 'disabled'}>SKIN SHOP <span>◎ ${this.profile.tokens}</span> ↗</button></main><aside class="scene-caption"><span class="tag">MEET YOUR REGULAR</span><h2>A little out<br>of his depth.</h2><p>Armed with bottle caps.<br>Running on pure instinct.</p><div class="caption-rule"></div><span class="micro">SURVIVE. LEVEL UP. SETTLE THE TAB.</span></aside><div class="title-index">01 <span>/ THE COUNTERTOP</span></div>`;
+    else if (g.mode === 'shop') this.overlay.innerHTML = this.shop();
     else if (g.mode === 'equipment') this.overlay.innerHTML = `<div class="modal upgrade-modal equipment-modal"><div class="eyebrow">BOSS CLEARED · GEAR UP</div><h2>Tools of the trade.</h2><p>Choose one item or keep your gear. Replaced items are discarded.</p><div class="upgrade-grid">${g.equipmentChoices.map(id => { const e = EQUIPMENT.find(e => e.id === id)!; const current = g[e.slot]; const description = EQUIPMENT.find(item => item.id === current)?.description ?? (e.slot === 'weapon' ? 'Your original bottle caps, with regular upgrades.' : 'No armor bonus.'); return `<button class="upgrade-card" data-equipment="${id}"><span class="upgrade-icon">${e.icon}</span><span class="micro">REPLACES ${e.slot.toUpperCase()} SLOT</span><h3>${e.name}</h3><p>${e.description}</p><div class="gear-comparison"><b>Current: ${gearName(current)}</b><span>${description}</span></div><span class="choose">EQUIP IT <b>↗</b></span></button>`; }).join('')}</div><button class="menu-button gear-skip" data-equipment="skip">Keep current gear</button><small></small></div>`;
     else if (g.mode === 'training') this.overlay.innerHTML = `<div class="modal upgrade-modal training-modal"><div class="eyebrow">LEVEL ${g.level} · HEALTH RESTORED</div><h2>Stronger by the round.</h2><p>All regular upgrades mastered. Keep training with no stack limit.</p><div class="upgrade-grid">${TRAINING.map(t => `<button class="upgrade-card" data-training="${t.id}"><span class="upgrade-icon">${t.icon}</span><span class="micro">TRAINING STACK ${g.training[t.id] + 1}</span><h3>${t.name}</h3><p>${t.description}</p><span class="choose">TRAIN <b>↗</b></span></button>`).join('')}</div><small></small></div>`;
     else if (g.mode === 'super') this.overlay.innerHTML = `<div class="modal upgrade-modal super-modal"><div class="eyebrow">BOSS CLEARED · HEALTH RESTORED</div><h2>The house special.</h2><p>Choose a unique super buff. Yours for the rest of this run.</p><div class="upgrade-grid">${g.superChoices.map(id => { const b = SUPER_BUFFS.find(b => b.id === id)!; return `<button class="upgrade-card" data-super="${id}"><span class="upgrade-icon">${b.icon}</span><span class="micro">UNIQUE SUPER BUFF</span><h3>${b.name}</h3><p>${b.description}</p><span class="choose">TAKE IT <b>↗</b></span></button>`; }).join('')}</div><small></small></div>`;
     else if (g.mode === 'upgrade') this.overlay.innerHTML = `<div class="modal upgrade-modal"><div class="eyebrow">A LITTLE SOMETHING ON THE HOUSE</div><h2>Make it a double.</h2><p>Level ${g.level} · Choose your next upgrade.</p><div class="upgrade-grid">${g.choices.map(id => { const u = UPGRADES.find(u => u.id === id)!; return `<button class="upgrade-card" data-upgrade="${id}"><span class="upgrade-icon">${u.icon}</span><span class="micro">${g.upgrades[id] ? `STACK ${g.upgrades[id] + 1}` : 'NEW UPGRADE'}</span><h3>${u.name}</h3><p>${u.description}</p><span class="choose">TAKE IT <b>↗</b></span></button>`; }).join('')}</div><small>Take your time. The bar can wait.</small></div>`;
     else if (g.mode === 'paused') this.overlay.innerHTML = `<div class="modal"><div class="eyebrow">HOLD THAT THOUGHT</div><h2>On the rocks.</h2><p>Your tab is safe. Catch your breath.</p><button class="primary" data-action="resume">BACK TO THE BAR <span>↗</span></button><small>Escape to resume</small></div>`;
-    else if (g.mode === 'victory' || g.mode === 'defeat') this.overlay.innerHTML = `<div class="modal result"><div class="eyebrow">${g.mode === 'victory' ? 'THE HOUSE IS YOURS' : 'YOU’VE BEEN CUT OFF'}</div><h2>${g.mode === 'victory' ? 'Tab settled.' : 'One too many.'}</h2><p>${g.mode === 'victory' ? 'Three rounds. One big guy. A very small legend.' : 'The countertop always has room for a comeback.'}</p><div class="results ${g.runMode === 'endless' ? 'endless-results' : ''}">${g.runMode === 'endless' ? `<div><strong>${g.roundsCompleted}</strong><span>ROUNDS CLEARED</span></div><div><strong>${g.bossesDefeated}</strong><span>BOSSES DEFEATED</span></div>` : ''}<div><strong>${time(g.elapsed)}</strong><span>TIME AT THE BAR</span></div><div><strong>${g.kills}</strong><span>ENEMIES SERVED</span></div><div><strong>${g.level}</strong><span>LEVEL REACHED</span></div></div><button class="primary" data-action="start">ANOTHER ROUND <span>↗</span></button><button class="menu-button" data-action="menu">CHANGE MODE / MAIN MENU</button></div>`;
+    else if (g.mode === 'victory' || g.mode === 'defeat') this.overlay.innerHTML = `<div class="modal result"><div class="eyebrow">${g.mode === 'victory' ? 'THE HOUSE IS YOURS' : 'YOU’VE BEEN CUT OFF'}</div><h2>${g.mode === 'victory' ? 'Tab settled.' : 'One too many.'}</h2><p>${g.mode === 'victory' ? 'Three rounds. One big guy. A very small legend.' : 'The countertop always has room for a comeback.'}</p><div class="results ${g.runMode === 'endless' ? 'endless-results' : ''}">${g.runMode === 'endless' ? `<div><strong>${g.roundsCompleted}</strong><span>ROUNDS CLEARED</span></div><div><strong>${g.bossesDefeated}</strong><span>BOSSES DEFEATED</span></div>` : ''}<div><strong>${time(g.elapsed)}</strong><span>TIME AT THE BAR</span></div><div><strong>${g.kills}</strong><span>ENEMIES SERVED</span></div><div><strong>${g.level}</strong><span>LEVEL REACHED</span></div></div><button class="primary" data-action="start">ANOTHER ROUND <span>↗</span></button><button class="menu-button" data-action="menu">CHANGE MODE / MAIN MENU</button><div class="result-wallet">+${g.bossesDefeated} Bar Token${g.bossesDefeated === 1 ? '' : 's'} earned this run · Wallet: ${this.profile.tokens}</div><button class="shop-link" data-action="shop">VISIT SKIN SHOP ↗</button></div>`;
     else this.overlay.innerHTML = '';
     if (isSelectionMode(g.mode)) {
       (this.overlay.querySelector('.gear-skip') ?? this.overlay.querySelector('.upgrade-grid'))!.insertAdjacentHTML('afterend', this.inventory());
