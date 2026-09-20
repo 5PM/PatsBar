@@ -84,7 +84,7 @@ test('armor replacement separates capacity, fills glass directly, and preserves 
 
 test('apron rounds all healing sources, clamps HP, and applies before the next equipment choice', () => {
   const g = game(); equip(g, 'apron'); g.player.hp = 1;
-  g.waveTime = 60; g.step(.01, idle); assert.equal(g.player.hp, 40);
+  g.waveTime = 45; g.step(.01, idle); assert.equal(g.player.hp, 40);
   g.mode = 'upgrade'; g.choices = ['health']; g.choose('health'); assert.equal(g.player.hp, 86); assert.equal(g.player.maxHp, 125);
   cap(g); g.level = 29; g.player.hp = 1; g.xp = xpRequired(g.level); g.checkLevel(); assert.equal(g.player.hp, 34);
   g.chooseTraining('endurance'); assert.equal(g.player.hp, 54); assert.equal(g.player.maxHp, 140);

@@ -27,6 +27,19 @@ fs.mkdirSync('artifacts', { recursive: true });
     return { afterHit, afterMute: played, audible };
   });
   assert.deepEqual(audioCheck, { afterHit: 1, afterMute: 1, audible: true });
+  for (const mode of ['normal', 'endless']) {
+    await page.evaluate(mode => {
+      const g = window.__patsBar.game; g.start(mode); g.waveTime = 44.9; g.nextSpawn = 999;
+      g.spawn('bottle', { x: 12, z: -7 }).speed = 0;
+    }, mode);
+    await page.waitForFunction(() => document.querySelector('#wave-name').textContent === 'Clear the countertop');
+    assert.equal(await page.locator('#timer').textContent(), '00:00');
+    assert.equal(await page.evaluate(() => window.__patsBar.game.round), 1);
+    await page.evaluate(() => { window.__patsBar.game.enemies = []; });
+    await page.waitForFunction(() => window.__patsBar.game.round === 2);
+    assert.equal(await page.evaluate(() => window.__patsBar.game.difficulty.duration), 45);
+  }
+  await page.evaluate(() => window.__patsBar.game.start('normal'));
   const startX = await page.evaluate(() => window.__patsBar.game.player.x);
   await page.keyboard.down('KeyD'); await page.waitForTimeout(400); await page.keyboard.up('KeyD');
   assert.ok(await page.evaluate(() => window.__patsBar.game.player.x) > startX);
@@ -93,7 +106,7 @@ fs.mkdirSync('artifacts', { recursive: true });
     const g = window.__patsBar.game; const idle = { x:0, z:0, aim:{x:0,z:0}, fire:false, dodge:false };
     g.player.invulnerable = 100;
     for (let r = 1; r <= 9; r++) {
-      g.enemies = []; g.waveTime = 60; g.step(.01, idle);
+      g.enemies = []; g.waveTime = 45; g.step(.01, idle);
       if (g.encounter === 'boss' && r < 9) { g.enemies[0].hp = 0; g.step(.01, idle); while (['upgrade','bossReward','training'].includes(g.mode)) { if(g.mode === 'upgrade') g.choose(g.choices[0]); else if(g.mode === 'training') g.chooseTraining('power'); else g.chooseBossReward(null); } }
     }
     g.nextSpawn = 0; g.step(.01, idle);

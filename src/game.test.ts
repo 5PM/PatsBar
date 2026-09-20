@@ -3,6 +3,29 @@ import assert from 'node:assert/strict';
 import { Game, type Input } from './game';
 import { isSelectionMode, bossDifficulty, bossReinforcementInterval, ENEMIES, SUPER_BUFFS, UPGRADES, waveDifficulty, xpRequired } from './config';
 const idle: Input = { x: 0, z: 0, aim: { x: 0, z: -5 }, fire: false, dodge: false };
+test('regular rounds stop spawning at 45 seconds and wait for survivor cleanup in both modes', () => {
+  for (const mode of ['normal', 'endless'] as const) for (const round of [1, 2, 3, ...(mode === 'endless' ? [9, 15] : [])]) {
+    const g = new Game(() => .5); g.start(mode); g.round = round; g.waveTime = 44.98; g.nextSpawn = 0;
+    assert.equal(g.difficulty.duration, 45);
+    g.step(.01, idle); assert.equal(g.enemies.length, 1);
+    g.nextSpawn = 0; g.step(.02, idle);
+    assert.equal(g.enemies.length, 1); assert.equal(g.round, round); assert.equal(g.encounter, 'wave');
+    g.enemies = []; g.step(.01, idle); assert.equal(g.waveTime, 0);
+    assert.equal(g.encounter, round % 3 === 0 ? 'boss' : 'wave');
+    assert.equal(g.round, round % 3 === 0 ? round : round + 1);
+  }
+});
+test('boss HP reductions and later bonuses apply to existing scaling without changing attacks', () => {
+  for (const [boss, factor] of [[1,.875],[2,.875],[3,.875],[4,1],[5,1.025],[6,1.05],[10,1.15]]) {
+    const g = new Game(); g.start('endless'); g.round = boss * 3; g.encounter = 'boss';
+    const e = g.spawn('boss');
+    assert.ok(Math.abs(e.maxHp - 36000 * (1 + .3 * (boss - 1)) * factor) < 1e-8);
+    assert.equal(e.hp, e.maxHp); assert.equal(e.damage, 22 * (1 + .15 * (boss - 1)));
+    assert.equal(e.recovery, Math.min(1.5, 1 + .08 * (boss - 1)));
+  }
+  const g = new Game(); g.start('normal'); g.round = 3;
+  assert.equal(g.spawn('boss').maxHp, 31500);
+});
 function bossReward(g: Game) { g.round = 3; g.encounter = 'boss'; g.enemies = []; g.spawn('boss', { x: 10, z: -5 }).hp = 0; g.step(.01, idle); }
 test('boss rewards follow banked XP upgrades, freeze gameplay, and apply only once', () => {
   const g = new Game(() => 0); g.start('endless'); g.player.hp = 10;
@@ -29,8 +52,8 @@ test('unowned super buffs share the pool; collecting all four leaves equipment r
   g.shieldCooldown = 5; g.menu(); assert.equal(g.superBuffs.size, 0); assert.equal(g.shieldCooldown, 0); assert.equal(g.trails.length, 0);
 });
 test('regular healing is 30 in both modes, and dead players get no rewards', () => {
-  for (const mode of ['normal','endless'] as const) { const g = new Game(); g.start(mode); g.player.hp = 25; g.waveTime = 60; g.step(.01,idle); assert.equal(g.player.hp,55); }
-  const g = new Game(); g.start('endless'); g.player.hp = 1; g.waveTime = 60; g.spawn('olive',g.player); g.step(.01,idle); assert.equal(g.mode,'defeat'); assert.equal(g.player.hp,0); assert.equal(g.bossChoices.length,0);
+  for (const mode of ['normal','endless'] as const) { const g = new Game(); g.start(mode); g.player.hp = 25; g.waveTime = 45; g.step(.01,idle); assert.equal(g.player.hp,55); }
+  const g = new Game(); g.start('endless'); g.player.hp = 1; g.waveTime = 45; g.spawn('olive',g.player); g.step(.01,idle); assert.equal(g.mode,'defeat'); assert.equal(g.player.hp,0); assert.equal(g.bossChoices.length,0);
 });
 test('explosions occur once per piercing cap and do not chain or double-hit their direct target', () => {
   const g = new Game(); g.start(); g.superBuffs.add('explosive'); g.upgrades.pierce = 2;
@@ -77,7 +100,7 @@ test('hurt sound fires only on actual damage and remains connected after restart
 test('three timed waves require clearing enemies before the boss', () => {
   const g = new Game(() => .5); g.start();
   for (let wave = 0; wave < 3; wave++) {
-    g.waveTime = 60; g.spawn('olive', { x: 10, z: 7 }); g.step(1 / 60, idle); assert.equal(g.round, wave + 1); assert.equal(g.encounter, 'wave');
+    g.waveTime = 45; g.spawn('olive', { x: 10, z: 7 }); g.step(1 / 60, idle); assert.equal(g.round, wave + 1); assert.equal(g.encounter, 'wave');
     g.enemies = []; g.step(1 / 60, idle); assert.equal(g.round, Math.min(3, wave + 2));
   }
   assert.equal(g.enemies[0].kind, 'boss');
@@ -115,7 +138,7 @@ test('Endless cycles through bosses after 3, 6, 9, and 12 without victory', () =
   const g = new Game(() => .5); g.start('endless'); g.player.invulnerable = 100;
   for (let round = 1; round <= 12; round++) {
     assert.equal(g.round, round); assert.equal(g.encounter, 'wave');
-    g.waveTime = 60; g.step(.01, idle);
+    g.waveTime = 45; g.step(.01, idle);
     assert.equal(g.roundsCompleted, round);
     if (round % 3 === 0) {
       assert.equal(g.encounter, 'boss'); assert.equal(g.bossNumber, round / 3);
@@ -146,14 +169,14 @@ test('difficulty preserves early rounds and scales every later round within popu
     assert.ok(d.speed <= base.speed * 1.5 && d.max <= 60 && d.interval >= .25 && d.bottleChance <= .6);
   }
   assert.deepEqual(bossDifficulty('endless', 1), bossDifficulty('normal', 1));
-  assert.deepEqual(bossDifficulty('endless', 3), { hp: 1.6, damage: 1.3, recovery: 1.16 });
+  assert.deepEqual(bossDifficulty('endless', 3), { hp: 1.6 * .875, damage: 1.3, recovery: 1.16 });
   assert.equal(bossDifficulty('endless', 100).recovery, 1.5);
 });
 
 test('later enemy stats affect contact, shots, and boss recovery without shortening warnings', () => {
   const g = new Game(() => .5); g.start('endless'); g.round = 9; g.encounter = 'boss';
   const boss = g.spawn('boss', { x: 10, z: -5 });
-  assert.equal(boss.maxHp, ENEMIES.boss.hp * 1.6);
+  assert.equal(boss.maxHp, ENEMIES.boss.hp * (1.6 * .875));
   assert.equal(boss.damage, 22 * 1.3);
   boss.phaseTime = 0; g.step(.01, idle); assert.equal(boss.phaseTime, 1.2);
   boss.phase = 'warning'; boss.attack = 1; boss.phaseTime = 0; g.step(.01, idle);
@@ -175,7 +198,7 @@ test('reinforcements respect timing and the twelve-enemy cap', () => {
 });
 
 test('transitions bank XP and heal once, retain upgrades, and wait during upgrade selection', () => {
-  const g = new Game(); g.start('endless'); g.round = 3; g.waveTime = 60; g.player.hp = 50; g.upgrades.damage = 2;
+  const g = new Game(); g.start('endless'); g.round = 3; g.waveTime = 45; g.player.hp = 50; g.upgrades.damage = 2;
   g.pickups.push({ id: 100, x: 10, z: 7, value: 3 }); g.shoot({ x: 10, z: 7 }, 0, true);
   g.step(.01, idle); assert.equal(g.player.hp, 80); assert.equal(g.xp, 3); assert.equal(g.pickups.length, 0); assert.equal(g.bullets.length, 0);
   g.enemies[0].hp = 0; g.step(.01, idle); g.chooseBossReward(null); assert.equal(g.player.hp, 100); assert.equal(g.round, 4); assert.equal(g.upgrades.damage, 2);
@@ -198,7 +221,7 @@ test('boss reinforcements start slowly after round 9 and accelerate between boss
   assert.equal(bossReinforcementInterval(4), 2.5);
   assert.ok(Math.abs(bossReinforcementInterval(5) - 3 / 1.44) < 1e-10);
   assert.equal(bossReinforcementInterval(100), .5);
-  const g = new Game(() => .5); g.start('endless'); g.round = 9; g.waveTime = 60;
+  const g = new Game(() => .5); g.start('endless'); g.round = 9; g.waveTime = 45;
   g.step(.01, idle); assert.equal(g.encounter, 'boss'); assert.equal(g.nextSpawn, 3);
   g.player.invulnerable = 10;
   for (let i = 0; i < 179; i++) g.step(1 / 60, idle);

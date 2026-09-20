@@ -44,7 +44,7 @@ test('simultaneous defeat and boss death retains the token, with no encounter he
 test('ordinary kills, round rewards, upgrades, and restart never award currency', () => {
   const p = new Profile(), g = new Game(() => .5, () => {}, () => p.awardBossToken()); g.start('endless');
   g.spawn('olive', { x: 10, z: 5 }).hp = 0; g.step(.01, idle); assert.equal(p.tokens, 0);
-  g.waveTime = 60; g.step(.01, idle); assert.equal(p.tokens, 0);
+  g.waveTime = 45; g.step(.01, idle); assert.equal(p.tokens, 0);
   g.xp = 12; g.checkLevel(); g.choose(g.choices[0]); assert.equal(p.tokens, 0);
   g.start('normal'); assert.equal(p.tokens, 0);
 });

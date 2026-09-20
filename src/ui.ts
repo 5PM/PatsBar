@@ -98,7 +98,7 @@ export class UI {
     this.xp.style.width = `${Math.min(100, g.xp / xpRequired(g.level) * 100)}%`; document.querySelector('#level')!.textContent = `LVL ${g.level.toString().padStart(2, '0')}`;
     document.querySelector('#wave-label')!.textContent = g.encounter === 'boss' ? `BOSS ${g.bossNumber}` : g.runMode === 'endless' ? `ENDLESS · ROUND ${g.round}` : `NORMAL · ROUND ${g.round} OF 3`;
     document.querySelector('#timer')!.textContent = g.encounter === 'wave' ? time(Math.max(0, g.difficulty.duration - g.waveTime)) : time(g.waveTime);
-    document.querySelector('#wave-name')!.textContent = g.encounter === 'wave' ? (g.waveTime >= 60 ? 'Clear the countertop' : g.difficulty.name) : 'Clear the remaining enemies';
+    document.querySelector('#wave-name')!.textContent = g.encounter === 'wave' ? (g.waveTime >= g.difficulty.duration ? 'Clear the countertop' : g.difficulty.name) : 'Clear the remaining enemies';
     document.querySelector('#kills')!.textContent = g.kills.toString().padStart(2, '0');
     document.querySelector('#dodge-status')!.textContent = title ? 'EST. TONIGHT' : g.player.dodge > 0 ? `DODGE · ${g.player.dodge.toFixed(1)}s` : 'DODGE READY ↗';
     const boss = g.enemies.find(e => e.kind === 'boss'); document.querySelector('#boss-hud')!.classList.toggle('hidden', !boss);

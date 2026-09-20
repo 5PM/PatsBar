@@ -53,9 +53,9 @@ export const UPGRADES: Upgrade[] = [
 ];
 export const ARENA = { x: 14, z: 8 };
 export const WAVES = [
-  { duration: 60, interval: 1.35, bottleChance: .12, max: 24, name: 'A quiet night' },
-  { duration: 60, interval: .95, bottleChance: .30, max: 32, name: 'The usual trouble' },
-  { duration: 60, interval: .68, bottleChance: .42, max: 42, name: 'One more round' },
+  { duration: 45, interval: 1.35, bottleChance: .12, max: 24, name: 'A quiet night' },
+  { duration: 45, interval: .95, bottleChance: .30, max: 32, name: 'The usual trouble' },
+  { duration: 45, interval: .68, bottleChance: .42, max: 42, name: 'One more round' },
 ];
 export const ENEMIES: Record<EnemyKind, { hp: number; speed: number; radius: number; damage: number; xp: number }> = {
   olive: { hp: 32, speed: 1.65, radius: .48, damage: 12, xp: 3 },
@@ -84,7 +84,9 @@ export function waveDifficulty(runMode: RunMode, round: number) {
 
 export function bossDifficulty(runMode: RunMode, bossNumber: number) {
   const n = runMode === 'endless' ? Math.max(0, bossNumber - 1) : 0;
-  return { hp: 1 + .3 * n, damage: 1 + .15 * n, recovery: Math.min(1.5, 1 + .08 * n) };
+  // Bosses 1–3 get a reduction; boss 4 is unchanged. Later bosses add 2.5 percentage points each.
+  const healthAdjustment = n < 3 ? .875 : 1 + .025 * (n - 3);
+  return { hp: (1 + .3 * n) * healthAdjustment, damage: 1 + .15 * n, recovery: Math.min(1.5, 1 + .08 * n) };
 }
 
 export function bossReinforcementInterval(bossNumber: number) {
